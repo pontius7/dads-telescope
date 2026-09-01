@@ -16,6 +16,10 @@ import { imageFor, visualExpectation } from './data/imagery'
 import { distanceTo, formatDistance } from './domain/distance'
 const ObjectView = lazy(() => import('./sky/ObjectView').then((m) => ({ default: m.ObjectView })))
 import { planImaging } from './domain/imaging'
+import {
+  moonReport, sunReport, planetRows, localSiderealHours, activeShowers, dewRisk,
+} from './domain/tonight'
+import { TELESCOPE, magnification, exitPupilMm } from './domain/optics'
 import { describeFreshness } from './services/weather'
 import { useOrientation } from './useOrientation'
 import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey } from './i18n'
@@ -23,7 +27,7 @@ import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey }
 type Panel =
   | 'hot' | 'detail' | 'notTonight' | 'menu'
   | 'equipment' | 'sources' | 'location' | 'language'
-  | 'plan' | 'imaging' | null
+  | 'plan' | 'imaging' | 'tonight' | null
 
 /** Re-render everything when the language changes. */
 function useLang() {
@@ -186,6 +190,7 @@ export default function App() {
       {panel === 'sources' && <SourcesSheet onBack={backToSky} />}
       {panel === 'language' && <LanguageSheet onBack={backToSky} />}
       {panel === 'imaging' && <ImagingSheet sky={sky} onBack={backToSky} />}
+      {panel === 'tonight' && <TonightSheet sky={sky} when={when} onBack={backToSky} />}
       {panel === 'plan' && (
         <PlanSheet
           loc={sky.loc}
@@ -444,6 +449,7 @@ function Fact({ k, v, sub }: { k: string; v: string; sub?: string }) {
 function MenuSheet({ onGo, onBack }: { onGo: (p: Panel) => void; onBack: () => void }) {
   const items: [string, Panel][] = [
     [t('menu.liveSky'), null],
+    [t('menu.tonight'), 'tonight'],
     [t('menu.plan'), 'plan'],
     [t('menu.imaging'), 'imaging'],
     [t('menu.equipment'), 'equipment'],
@@ -657,6 +663,136 @@ function ImagingSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
         </div>
       ))}
     </Sheet>
+  )
+}
+
+/**
+ * The observer's dashboard: everything checked before going out, in one place.
+ *
+ * Kept to hairline rules and tabular figures rather than cards and icons —
+ * this is a reference panel, and an enthusiast reads it by scanning columns.
+ */
+function TonightSheet({ sky, when, onBack }: { sky: Sky; when: Date; onBack: () => void }) {
+  const moon = useMemo(() => moonReport(when, sky.loc), [when, sky.loc])
+  const sun = useMemo(() => sunReport(when, sky.loc), [when, sky.loc])
+  const planets = useMemo(() => planetRows(when, sky.loc), [when, sky.loc])
+  const lst = useMemo(() => localSiderealHours(when, sky.loc), [when, sky.loc])
+  const showers = useMemo(() => activeShowers(when), [when])
+
+  const wx = sky.weather?.samples?.[0] ?? null
+  const dew = dewRisk(wx?.temperatureC ?? null, wx?.dewPointC ?? null)
+
+  const lstH = Math.floor(lst)
+  const lstM = Math.floor((lst - lstH) * 60)
+
+  return (
+    <Sheet title={t('menu.tonight')} onBack={onBack}>
+      {/* ---------------------------------------------------------- Moon */}
+      <div className="label mb sp">{t('tonight.moon')}</div>
+      <div className="dash">
+        <Cell k={t('tonight.phase')} v={moon.phaseName} />
+        <Cell k={t('tonight.illum')} v={`${moon.illuminatedPct}%`} />
+        <Cell k={t('tonight.age')} v={`${moon.ageDays} d`} />
+        <Cell k={t('detail.up')} v={`${moon.altitudeDeg}°`} />
+        <Cell k={t('tonight.moonrise')} v={formatTime(moon.rise)} />
+        <Cell k={t('tonight.moonset')} v={formatTime(moon.set)} />
+        <Cell k={t('tonight.newMoon')} v={moon.nextNew ? formatDate(moon.nextNew) : '—'} />
+        <Cell k={t('tonight.fullMoon')} v={moon.nextFull ? formatDate(moon.nextFull) : '—'} />
+      </div>
+      <p className="note">
+        {moon.favourable ? t('tonight.moonGood') : t('tonight.moonBad')}
+      </p>
+
+      {/* -------------------------------------------------------- Darkness */}
+      <div className="label mb sp">{t('tonight.darkness')}</div>
+      <div className="dash">
+        <Cell k={t('tonight.sunset')} v={formatTime(sun.set)} />
+        <Cell k={t('tonight.civil')} v={formatTime(sun.civilDusk)} />
+        <Cell k={t('tonight.nautical')} v={formatTime(sun.nauticalDusk)} />
+        <Cell k={t('tonight.astro')} v={formatTime(sun.astroDusk)} />
+        <Cell k={t('tonight.dawn')} v={formatTime(sun.astroDawn)} />
+        <Cell k={t('tonight.sunrise')} v={formatTime(sun.rise)} />
+      </div>
+      {sun.darkHours !== null && (
+        <p className="note">{t('tonight.darkFor')} <strong>{sun.darkHours} h</strong></p>
+      )}
+
+      {/* ------------------------------------------------------------- Sky */}
+      <div className="label mb sp">{t('tonight.sky')}</div>
+      <div className="dash">
+        <Cell k={t('tonight.lst')} v={`${String(lstH).padStart(2, '0')}h ${String(lstM).padStart(2, '0')}m`} />
+        <Cell
+          k={t('tonight.cloud')}
+          v={wx?.cloudCoverPct !== null && wx?.cloudCoverPct !== undefined ? `${wx.cloudCoverPct}%` : '—'}
+        />
+        <Cell k={t('tonight.humidity')} v={wx?.relativeHumidityPct !== null && wx?.relativeHumidityPct !== undefined ? `${wx.relativeHumidityPct}%` : '—'} />
+        <Cell k={t('tonight.temp')} v={wx?.temperatureC !== null && wx?.temperatureC !== undefined ? `${wx.temperatureC}°C` : '—'} />
+      </div>
+      <p className="note">{t('tonight.lstNote')}</p>
+      {dew && (
+        <p className={`note${dew.level === 'high' ? ' warn' : ''}`}>
+          {t(`tonight.dew.${dew.level}` as StringKey)} ({dew.spreadC}°C)
+        </p>
+      )}
+      {!wx && <p className="note">{t('weather.unavailable')}</p>}
+
+      {/* --------------------------------------------------------- Planets */}
+      <div className="label mb sp">{t('tonight.planets')}</div>
+      {planets.map((p) => (
+        <div key={p.id} className="dashrow">
+          <span className="dashrow-n">{p.name}</span>
+          <span className="dashrow-v">
+            {p.up ? `${p.altitudeDeg}° ${compass(p.azimuthDeg)}` : t('tonight.down')}
+          </span>
+          <span className="dashrow-m">{p.magnitude !== null ? `m ${p.magnitude}` : ''}</span>
+        </div>
+      ))}
+
+      {/* --------------------------------------------------------- Showers */}
+      {showers.length > 0 && (
+        <>
+          <div className="label mb sp">{t('tonight.showers')}</div>
+          {showers.map((sh) => (
+            <div key={sh.name} className="dashrow">
+              <span className="dashrow-n">{sh.name}</span>
+              <span className="dashrow-v">{sh.peak}</span>
+              <span className="dashrow-m">ZHR {sh.zhr}</span>
+            </div>
+          ))}
+          <p className="note">{t('tonight.zhrNote')}</p>
+        </>
+      )}
+
+      {/* ------------------------------------------------------- Eyepieces */}
+      <div className="label mb sp">{t('tonight.eyepieces')}</div>
+      {sky.inventory.eyepieces
+        .filter((e) => e.enabled && e.verified)
+        .map((e) => {
+          const fl = e.focal.kind === 'fixed' ? e.focal.focalMm : e.focal.minMm
+          const fl2 = e.focal.kind === 'zoom' ? e.focal.maxMm : null
+          const m1 = Math.round(magnification(fl))
+          const m2 = fl2 ? Math.round(magnification(fl2)) : null
+          return (
+            <div key={e.id} className="dashrow">
+              <span className="dashrow-n">{e.model}</span>
+              <span className="dashrow-v">{m2 ? `${m2}–${m1}×` : `${m1}×`}</span>
+              <span className="dashrow-m">{exitPupilMm(fl).toFixed(1)} mm</span>
+            </div>
+          )
+        })}
+      <p className="note">
+        {TELESCOPE.name} · {TELESCOPE.apertureMm} mm · {TELESCOPE.focalLengthMm} mm
+      </p>
+    </Sheet>
+  )
+}
+
+function Cell({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="cell">
+      <span className="cell-k">{k}</span>
+      <span className="cell-v">{v}</span>
+    </div>
   )
 }
 

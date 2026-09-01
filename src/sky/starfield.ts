@@ -12,6 +12,7 @@
  *      claims a background dot is a particular star.
  */
 import { Rotation_GAL_EQJ, RotateVector, Vector, MakeTime } from 'astronomy-engine'
+import { FIGURE_STARS } from './constellations'
 
 export interface StarSeed {
   /** Unit vector in J2000 equatorial coordinates. */
@@ -122,10 +123,22 @@ function makeRandom(seed: number): () => number {
  */
 export function buildStarField(backgroundCount = 4200): StarSeed[] {
   const out: StarSeed[] = []
+  const placed = new Set<string>()
 
-  for (const [, ra, dec, mag, bv] of BRIGHT_STARS) {
+  for (const [name, ra, dec, mag, bv] of BRIGHT_STARS) {
     const [x, y, z] = raDecToVec(ra, dec)
     out.push({ x, y, z, magnitude: mag, bv })
+    placed.add(name)
+  }
+
+  // Every star used as a constellation-figure vertex must be visible, or the
+  // lines would run to empty sky. Those not already in the bright list are
+  // third- to fourth-magnitude stars, which is what the figures are made of.
+  for (const [name, [ra, dec]] of Object.entries(FIGURE_STARS)) {
+    if (placed.has(name)) continue
+    const [x, y, z] = raDecToVec(ra, dec)
+    out.push({ x, y, z, magnitude: 3.4, bv: 0.35 })
+    placed.add(name)
   }
 
   const rnd = makeRandom(20260901)

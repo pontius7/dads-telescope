@@ -499,3 +499,45 @@ body {
 .distance-sub { font-size: 11px; color: var(--muted); line-height: 1.45; }
 
 .credit { font-size: 10.5px; color: var(--faint); line-height: 1.5; margin: 0 0 10px; }
+
+/* ------------------------------------------------- observer's dashboard */
+.dash {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+.cell {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cell:nth-child(odd) { padding-right: 14px; }
+.cell-k {
+  font-size: 9.5px; letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--muted);
+}
+.cell-v { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+/* Three-column reference rows: name, value, secondary. Tabular figures so the
+   columns line up when scanned. */
+.dashrow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 14px; align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dashrow-n { font-size: 14px; }
+.dashrow-v { font-size: 13px; font-variant-numeric: tabular-nums; }
+.dashrow-m {
+  font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 54px; text-align: right;
+}
+
+/* Keep the scrollbar from cutting a bright line down the sheet edge. */
+.sheet-body { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.13) transparent; }
+.sheet-body::-webkit-scrollbar { width: 6px; }
+.sheet-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.13); border-radius: 3px; }
+.sheet-body::-webkit-scrollbar-track { background: transparent; }

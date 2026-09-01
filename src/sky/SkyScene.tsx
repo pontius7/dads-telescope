@@ -14,6 +14,7 @@ import {
 } from '../domain/ephemeris'
 import { MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
 import { buildStarField, buildMilkyWay, bvToRgb, magnitudeToSize } from './starfield'
+import { CONSTELLATIONS, figureStarVector } from './constellations'
 import type { ScoredTarget } from '../useSky'
 
 /** Place a point on the celestial sphere from altitude/azimuth. */
@@ -345,6 +346,150 @@ function Horizon({ explore }: { explore: boolean }) {
 }
 
 /**
+ * Constellation figures.
+ *
+ * Hairline additive lines connecting real stars, with two independent fades so
+ * they help rather than clutter:
+ *
+ *   ALTITUDE — a figure lying on the horizon fades out, because its stars are
+ *              extinguished anyway and the lines would just be noise.
+ *   ZOOM     — they fade out as the field narrows past about 40 degrees. When
+ *              you have flown in on one object you are no longer navigating,
+ *              and the lines would sit on top of the thing you came to see.
+ */
+function Figures({ loc, when, fovRef }: { loc: GeoLocation; when: Date; fovRef: React.RefObject<number> }) {
+  const lineRef = useRef<THREE.LineSegments>(null)
+  const groupRef = useRef<THREE.Group>(null)
+
+  const { geometry, labels } = useMemo(() => {
+    const rot = Rotation_EQJ_HOR(MakeTime(when), makeObserver(loc))
+    const time = MakeTime(when)
+
+    const toHor = (name: string) => {
+      const v = figureStarVector(name)
+      if (!v) return null
+      const h = RotateVector(rot, new Vector(v[0], v[1], v[2], time))
+      return h
+    }
+
+    const pts: number[] = []
+    const cols: number[] = []
+    const labs: { name: string; common?: string; pos: THREE.Vector3; alt: number }[] = []
+
+    for (const c of CONSTELLATIONS) {
+      let sumX = 0, sumY = 0, sumZ = 0, n = 0, anyUp = false
+
+      for (const [a, b] of c.lines) {
+        const ha = toHor(a)
+        const hb = toHor(b)
+        if (!ha || !hb) continue
+        // Skip a segment if either end is below the horizon: half a figure
+        // drawn into the ground is worse than none of it.
+        if (ha.z < 0.02 || hb.z < 0.02) continue
+        anyUp = true
+
+        pts.push(ha.y * 90, ha.z * 90, ha.x * 90, hb.y * 90, hb.z * 90, hb.x * 90)
+        // Fade each vertex by its own altitude.
+        for (const h of [ha, hb]) {
+          const f = Math.max(0, Math.min(1, (Math.asin(Math.min(1, h.z)) * 180) / Math.PI / 28))
+          cols.push(0.42 * f, 0.55 * f, 0.78 * f)
+        }
+      }
+
+      for (const [a, b] of c.lines) {
+        for (const nm of [a, b]) {
+          const h = toHor(nm)
+          if (!h) continue
+          sumX += h.y; sumY += h.z; sumZ += h.x; n += 1
+        }
+      }
+      if (anyUp && n > 0) {
+        const centre = new THREE.Vector3(sumX / n, sumY / n, sumZ / n).normalize()
+        labs.push({
+          name: c.name,
+          common: c.common,
+          pos: centre.multiplyScalar(88),
+          alt: (Math.asin(Math.min(1, centre.y / 88)) * 180) / Math.PI,
+        })
+      }
+    }
+
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
+    g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3))
+    return { geometry: g, labels: labs }
+  }, [loc, when])
+
+  // Fade the whole layer with field of view, read each frame from the camera
+  // rig rather than through React state.
+  useFrame(() => {
+    const fov = fovRef.current ?? 60
+    // Full strength at a wide field, gone by about 32 degrees.
+    const k = Math.max(0, Math.min(1, (fov - 32) / 22))
+    const mat = lineRef.current?.material as THREE.LineBasicMaterial | undefined
+    if (mat) mat.opacity = 0.5 * k
+    if (groupRef.current) groupRef.current.visible = k > 0.05
+  })
+
+  return (
+    <group ref={groupRef}>
+      <lineSegments ref={lineRef} geometry={geometry} renderOrder={-1}>
+        <lineBasicMaterial
+          vertexColors
+          transparent
+          opacity={0.5}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </lineSegments>
+      {labels.map((l) => {
+        const text = l.common ? `${l.name} · ${l.common}` : l.name
+        const map = labelTexture(text)
+        const aspect = labelAspect.get(text) ?? 4
+        const h = 3.4
+        return (
+          <sprite key={l.name} position={[l.pos.x, l.pos.y, l.pos.z]} scale={[h * aspect, h, 1]}>
+            <spriteMaterial map={map} transparent opacity={0.46} depthTest={false} />
+          </sprite>
+        )
+      })}
+    </group>
+  )
+}
+
+const labelCache = new Map<string, THREE.CanvasTexture>()
+const labelAspect = new Map<string, number>()
+function labelTexture(text: string): THREE.CanvasTexture {
+  const hit = labelCache.get(text)
+  if (hit) return hit
+  const FONT = '500 40px "Avenir Next", system-ui, sans-serif'
+  const upper = text.toUpperCase()
+
+  // Measure first. A fixed 512px canvas clipped longer names to
+  // "GASUS · GREAT SQUA", so the canvas is sized to the text instead.
+  const probe = document.createElement('canvas').getContext('2d')!
+  probe.font = FONT
+  probe.letterSpacing = '6px'
+  const W = Math.ceil(probe.measureText(upper).width) + 48
+  const H = 96
+
+  const c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const ctx = c.getContext('2d')!
+  ctx.font = FONT
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.letterSpacing = '6px'
+  ctx.fillStyle = '#93a6c4'
+  ctx.fillText(upper, W / 2, H / 2)
+  const tex = new THREE.CanvasTexture(c)
+  labelCache.set(text, tex)
+  labelAspect.set(text, W / H)
+  return tex
+}
+
+/**
  * Occasional meteors.
  *
  * Sporadic meteors are real and frequent — a handful an hour on any clear
@@ -566,8 +711,9 @@ function markerTexture(score: number, selected: boolean): THREE.CanvasTexture {
  * the fly-to needs to interpolate the same state the gestures write.
  */
 function CameraRig({
-  flyTo, zoomNudge, initialView, explore, orientation,
+  flyTo, zoomNudge, initialView, explore, orientation, fovOut,
 }: {
+  fovOut?: React.RefObject<number>
   flyTo: { altDeg: number; azDeg: number } | null
   zoomNudge: number
   initialView: { altDeg: number; azDeg: number } | null
@@ -693,6 +839,7 @@ function CameraRig({
     const dir = altAzToVec3(s.alt, s.az, 1)
     camera.position.set(0, 0, 0)
     camera.lookAt(dir)
+    if (fovOut) fovOut.current = s.fov
     const cam = camera as THREE.PerspectiveCamera
     if (Math.abs(cam.fov - s.fov) > 0.01) {
       cam.fov = s.fov
@@ -705,7 +852,7 @@ function CameraRig({
 
 export function SkyScene({
   loc, when, targets, selectedId, onSelect, flyTo, zoomNudge, initialView,
-  explore = false, orientation = null,
+  explore = false, orientation = null, showFigures = true,
 }: {
   loc: GeoLocation
   when: Date
@@ -717,8 +864,10 @@ export function SkyScene({
   initialView: { altDeg: number; azDeg: number } | null
   explore?: boolean
   orientation?: React.RefObject<{ azDeg: number; altDeg: number } | null> | null
+  showFigures?: boolean
 }) {
   const [dpr, setDpr] = useState(1.5)
+  const fovRef = useRef(64)
   useEffect(() => {
     // Cap pixel ratio: a 3x Retina phone gains nothing visible here and pays
     // for it in frame time.
@@ -736,6 +885,7 @@ export function SkyScene({
       <color attach="background" args={['#05070c']} />
       <fog attach="fog" args={['#05070c', 120, 260]} />
       <MilkyWay loc={loc} when={when} />
+      {showFigures && <Figures loc={loc} when={when} fovRef={fovRef} />}
       <Stars loc={loc} when={when} explore={explore} />
       <Horizon explore={explore} />
       <Cardinals />
@@ -764,6 +914,7 @@ export function SkyScene({
         initialView={initialView}
         explore={explore}
         orientation={orientation}
+        fovOut={fovRef}
       />
     </Canvas>
   )
