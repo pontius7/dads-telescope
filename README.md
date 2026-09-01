@@ -27,7 +27,8 @@ Then open **http://localhost:5173** on this Mac, or the printed
 > remaining step.
 
 ```sh
-npm test        # 151 tests, all pure logic
+npm test        # 193 tests, all pure logic
+npm run deploy  # build + ship to Cloudflare
 npm run build   # production build + service worker
 ```
 
@@ -40,8 +41,18 @@ npm run build   # production build + service worker
 - **Not Tonight** — popular objects that genuinely are not available, each with
   the reason, instead of cluttering the main list with zeros.
 - **Object card** — score, best time, where to look, the exact eyepiece, the
-  magnification, and whether to use a filter, with the reasoning.
-- **Equipment** — the verified inventory, and why unverified gear is excluded.
+  magnification, whether to use a filter, a real NASA photograph where one could
+  be verified, and an honest note on what the eyepiece will actually show.
+- **Plan Observing** — pick any date; the window is derived from that night's
+  astronomical twilight, then fed to the same scoring engine.
+- **Explore Sky** — free look, including below the horizon, with a time scrubber
+  for seeing what rises later.
+- **Point at Sky** — the view follows the phone. Motion permission is requested
+  only when you tap it, never on launch.
+- **Imaging** — what suits the NexImage 10, and plainly why deep sky does not.
+- **Equipment** — switch gear on and off, add your own. Anything you add is
+  unverified and therefore excluded from recommendations.
+- **English and Crnogorski** — latinica, ijekavica.
 - **Sources** — every formula, catalogue and assumption behind the numbers.
 
 ## How it is built
@@ -77,11 +88,19 @@ Moon, Jupiter, the Sun, and a below-horizon Mars.
 - **Unverified equipment never enters a recommendation.** Anything you add is
   unverified until its specifications are confirmed from a real source.
 
-## Not built yet
+## Known limitations
 
-Plan Observing, Explore Sky, Imaging, the Montenegrin translation, and
-Point-at-Sky. The translation plumbing is already in place, so Crnogorski is a
-data file rather than a rewrite.
+- **13 of 37 candidate images were kept.** Every one had to be verified: the
+  NASA library's own title must independently name the object. Matching on
+  description text let a "History of Chandra" page pass as a picture of M31, so
+  it was rejected. Objects without a verified image show no image.
+- **Some equipment specs are unconfirmed** and marked `needs-verification` in
+  the Sources screen — the Baader zoom's apparent-field curve, the SVBONY's
+  apparent field, the UHC passband. They are used with a visible warning rather
+  than silently trusted.
+- **The Montenegrin translation is not native-reviewed.** It is written as
+  ijekavian latinica and tested against ekavian spellings, but a native speaker
+  should read it before it is considered final.
 
 ## Data and licences
 

@@ -186,13 +186,14 @@ function useTextTexture(text: string): THREE.CanvasTexture {
 
 /** A score marker: the number inside a thin ring. */
 function Marker({
-  target, loc, when, selected, onSelect,
+  target, loc, when, selected, onSelect, explore,
 }: {
   target: ScoredTarget
   loc: GeoLocation
   when: Date
   selected: boolean
   onSelect: (id: string) => void
+  explore: boolean
 }) {
   const pos = useMemo(() => {
     const t = target.target
@@ -208,7 +209,10 @@ function Marker({
     [target.observability.finalScore, selected],
   )
 
-  if (pos.alt < 2) return null
+  // In Live mode a marker below the horizon is hidden — the object is not
+  // there to look at. Explore mode shows it, dimmed, so you can see what is
+  // coming up later.
+  if (pos.alt < 2 && !explore) return null
 
   return (
     <sprite
@@ -263,11 +267,15 @@ function markerTexture(score: number, selected: boolean): THREE.CanvasTexture {
  * the fly-to needs to interpolate the same state the gestures write.
  */
 function CameraRig({
-  flyTo, zoomNudge, initialView,
+  flyTo, zoomNudge, initialView, explore, orientation,
 }: {
   flyTo: { altDeg: number; azDeg: number } | null
   zoomNudge: number
   initialView: { altDeg: number; azDeg: number } | null
+  /** Explore mode lets the view go below the horizon. */
+  explore: boolean
+  /** When set, the device's own orientation drives the camera. */
+  orientation: React.RefObject<{ azDeg: number; altDeg: number } | null> | null
 }) {
   const { camera, gl } = useThree()
   // Open looking at the best target rather than an arbitrary bearing. Note the
@@ -281,6 +289,10 @@ function CameraRig({
   const target = useRef<{ az: number; alt: number } | null>(null)
   const drag = useRef<{ x: number; y: number } | null>(null)
   const pinch = useRef<number | null>(null)
+  // Read inside the gesture listener, which is registered once — a ref keeps it
+  // current without re-binding events on every mode change.
+  const exploreRef = useRef(explore)
+  exploreRef.current = explore
 
   useEffect(() => {
     if (flyTo) target.current = { az: flyTo.azDeg, alt: flyTo.altDeg }
@@ -303,7 +315,9 @@ function CameraRig({
       drag.current = { x: e.clientX, y: e.clientY }
       const k = state.current.fov / 60
       state.current.az = wrap360(state.current.az - dx * 0.16 * k)
-      state.current.alt = clamp(state.current.alt + dy * 0.16 * k, -8, 89)
+      // Live mode stops just below the horizon; Explore lets you look right
+      // down through the ground at objects that have not risen.
+      state.current.alt = clamp(state.current.alt + dy * 0.16 * k, exploreRef.current ? -89 : -8, 89)
     }
     const up = () => {
       drag.current = null
@@ -345,6 +359,18 @@ function CameraRig({
 
   useFrame((_, dt) => {
     const s = state.current
+
+    // Sensor mode overrides gestures entirely while active.
+    const sensor = orientation?.current
+    if (sensor) {
+      // Light smoothing: raw orientation readings jitter enough to make the
+      // sky visibly shake if applied directly.
+      const k = 1 - Math.exp(-dt * 8)
+      s.az = wrap360(s.az + shortestAngle(s.az, sensor.azDeg) * k)
+      s.alt += (sensor.altDeg - s.alt) * k
+      target.current = null
+    }
+
     if (target.current) {
       // Critically-damped ease toward the target: fast, then settles. No
       // overshoot, which would read as gimmicky on a star chart.
@@ -374,6 +400,7 @@ function CameraRig({
 
 export function SkyScene({
   loc, when, targets, selectedId, onSelect, flyTo, zoomNudge, initialView,
+  explore = false, orientation = null,
 }: {
   loc: GeoLocation
   when: Date
@@ -383,6 +410,8 @@ export function SkyScene({
   flyTo: { altDeg: number; azDeg: number } | null
   zoomNudge: number
   initialView: { altDeg: number; azDeg: number } | null
+  explore?: boolean
+  orientation?: React.RefObject<{ azDeg: number; altDeg: number } | null> | null
 }) {
   const [dpr, setDpr] = useState(1.5)
   useEffect(() => {
@@ -412,9 +441,16 @@ export function SkyScene({
           when={when}
           selected={t.target.id === selectedId}
           onSelect={onSelect}
+          explore={explore}
         />
       ))}
-      <CameraRig flyTo={flyTo} zoomNudge={zoomNudge} initialView={initialView} />
+      <CameraRig
+        flyTo={flyTo}
+        zoomNudge={zoomNudge}
+        initialView={initialView}
+        explore={explore}
+        orientation={orientation}
+      />
     </Canvas>
   )
 }

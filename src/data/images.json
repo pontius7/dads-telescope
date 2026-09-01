@@ -1,0 +1,93 @@
+{
+  "m31": {
+    "url": "https://images-assets.nasa.gov/image/PIA25163/PIA25163~medium.jpg",
+    "title": "Andromeda Galaxy Imaged by Herschel, Planck, IRAS, COBE",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA25163"
+  },
+  "m33": {
+    "url": "https://images-assets.nasa.gov/image/PIA11969/PIA11969~medium.jpg",
+    "title": "M33: A Close Neighbor Reveals its True Size and Splendor 3-color composite",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA11969"
+  },
+  "m45": {
+    "url": "https://images-assets.nasa.gov/image/PIA08260/PIA08260~orig.jpg",
+    "title": "The Seven Sisters",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA08260"
+  },
+  "m51": {
+    "url": "https://images-assets.nasa.gov/image/GSFC_20171208_Archive_e001925/GSFC_20171208_Archive_e001925~medium.jpg",
+    "title": "The Two-faced Whirlpool Galaxy",
+    "credit": "GSFC",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/GSFC_20171208_Archive_e001925"
+  },
+  "m82": {
+    "url": "https://images-assets.nasa.gov/image/PIA23010/PIA23010~medium.jpg",
+    "title": "The Cigar Galaxy's Magnetic Field",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA23010"
+  },
+  "m87": {
+    "url": "https://images-assets.nasa.gov/image/PIA23122/PIA23122~medium.jpg",
+    "title": "Spitzer Captures Messier 87",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA23122"
+  },
+  "m101": {
+    "url": "https://images-assets.nasa.gov/image/PIA15630/PIA15630~medium.jpg",
+    "title": "Pinwheel Galaxy Rainbow",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA15630"
+  },
+  "ngc0253": {
+    "url": "https://images-assets.nasa.gov/image/PIA13440/PIA13440~small.jpg",
+    "title": "The Many Infrared Personalities of the Sculptor Galaxy",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA13440"
+  },
+  "jupiter": {
+    "url": "https://images-assets.nasa.gov/image/GSFC_20171208_Archive_e000537/GSFC_20171208_Archive_e000537~medium.jpg",
+    "title": "Hubble’s Planetary Portrait Captures New Changes in Jupiter’s Great Red Spot",
+    "credit": "GSFC",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/GSFC_20171208_Archive_e000537"
+  },
+  "saturn": {
+    "url": "https://images-assets.nasa.gov/image/PIA01273/PIA01273~orig.jpg",
+    "title": "Hubble again views Saturn Rings Edge-on",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA01273"
+  },
+  "uranus": {
+    "url": "https://images-assets.nasa.gov/image/PIA01281/PIA01281~orig.jpg",
+    "title": "Hubble Observes the Moons and Rings of Uranus",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA01281"
+  },
+  "neptune": {
+    "url": "https://images-assets.nasa.gov/image/PIA02220/PIA02220~orig.jpg",
+    "title": "Neptune Shadows",
+    "credit": "JPL",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/PIA02220"
+  },
+  "mercury": {
+    "url": "https://images-assets.nasa.gov/image/GSFC_20171208_Archive_e001625/GSFC_20171208_Archive_e001625~small.jpg",
+    "title": "Happy Little Crater on Mercury",
+    "credit": "GSFC",
+    "license": "Public domain (NASA)",
+    "sourceUrl": "https://images.nasa.gov/details/GSFC_20171208_Archive_e001625"
+  }
+}

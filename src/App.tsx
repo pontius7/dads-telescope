@@ -1,55 +1,74 @@
-import { useEffect, useMemo, useState } from 'react'
-import { SkyScene } from './sky/SkyScene'
-import { useSky, setupFor, compass, formatTime, type ScoredTarget } from './useSky'
-import { bodyHorizontal, fixedHorizontal, HOME } from './domain/ephemeris'
-import { sourcesForDisplay } from './data/evidence'
-import { DEFAULT_INVENTORY } from './data/inventory'
-import { describeFreshness } from './services/weather'
-import { t } from './i18n'
+import { useEffect, useMemo, useState, useSyncExternalStore, lazy, Suspense } from 'react'
+// Lazy so the UI shell, catalogue and domain logic land before the 3D stack.
+// Three.js is the bulk of the bundle and nothing above it needs to wait.
+const SkyScene = lazy(() => import('./sky/SkyScene').then((m) => ({ default: m.SkyScene })))
 
-type Panel = 'hot' | 'detail' | 'notTonight' | 'menu' | 'equipment' | 'sources' | 'location' | null
+import {
+  useSky, setupFor, compass, formatTime, formatDate, windowForDate,
+  toDateInput, fromDateInput, toTimeInput, withTime, TARGETS_BY_ID,
+  type ScoredTarget,
+} from './useSky'
+import { bodyHorizontal, fixedHorizontal, HOME, type GeoLocation } from './domain/ephemeris'
+import type { ObservingWindow } from './domain/scoring'
+import { sourcesForDisplay } from './data/evidence'
+import { setEnabled, addUserEyepiece, removeUserEyepiece } from './data/inventoryStore'
+import { imageFor, visualExpectation } from './data/imagery'
+import { planImaging } from './domain/imaging'
+import { describeFreshness } from './services/weather'
+import { useOrientation } from './useOrientation'
+import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey } from './i18n'
+
+type Panel =
+  | 'hot' | 'detail' | 'notTonight' | 'menu'
+  | 'equipment' | 'sources' | 'location' | 'language'
+  | 'plan' | 'imaging' | null
+
+/** Re-render everything when the language changes. */
+function useLang() {
+  return useSyncExternalStore(subscribe, getLang, getLang)
+}
 
 export default function App() {
-  // One clock for the whole app, ticking slowly. The sky moves; weather does not
-  // refetch on every tick.
+  useLang()
+
+  // One clock for the whole app, ticking slowly. The sky moves; weather does
+  // not refetch on every tick.
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000)
     return () => clearInterval(id)
   }, [])
 
-  const sky = useSky(now)
+  const [planWindow, setPlanWindow] = useState<ObservingWindow | null>(null)
+  const sky = useSky(now, planWindow)
+
   const [panel, setPanel] = useState<Panel>('hot')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [zoomNudge, setZoomNudge] = useState(0)
+  const [explore, setExplore] = useState(false)
+  const [exploreTime, setExploreTime] = useState<Date | null>(null)
+
+  const orient = useOrientation()
+  const sensorOn = orient.state === 'granted'
+
+  // In Explore mode the scrubbed time drives the sky; otherwise it is now.
+  const when = explore && exploreTime ? exploreTime : now
 
   const selected = useMemo(
-    () => sky.tonight.find((s) => s.target.id === selectedId) ?? null,
-    [sky.tonight, selectedId],
+    () => [...sky.tonight, ...sky.notTonight].find((s) => s.target.id === selectedId) ?? null,
+    [sky.tonight, sky.notTonight, selectedId],
   )
 
   const flyTo = useMemo(() => {
-    if (!selected) return null
-    const tt = selected.target
-    const h =
-      tt.type === 'deep-sky'
-        ? fixedHorizontal(tt.raHoursJ2000, tt.decDegJ2000, now, sky.loc, 'normal')
-        : bodyHorizontal(tt.body, now, sky.loc, 'normal')
-    return { altDeg: h.altitudeDeg, azDeg: h.azimuthDeg }
-  }, [selected, now, sky.loc])
+    if (!selected || sensorOn) return null
+    return positionOf(selected, when, sky.loc)
+  }, [selected, when, sky.loc, sensorOn])
 
-  // Where to look when the app opens: at the best target available.
   const initialView = useMemo(() => {
     const best = sky.markers[0]
-    if (!best) return null
-    const tt = best.target
-    const h =
-      tt.type === 'deep-sky'
-        ? fixedHorizontal(tt.raHoursJ2000, tt.decDegJ2000, now, sky.loc, 'normal')
-        : bodyHorizontal(tt.body, now, sky.loc, 'normal')
-    return { altDeg: h.altitudeDeg, azDeg: h.azimuthDeg }
-    // Intentionally computed once, from the first non-empty marker list, so the
-    // view does not jump every time the clock ticks.
+    return best ? positionOf(best, when, sky.loc) : null
+    // Computed once from the first non-empty marker list so the view does not
+    // jump every time the clock ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sky.markers.length > 0])
 
@@ -57,65 +76,130 @@ export default function App() {
     setSelectedId(id)
     setPanel(id ? 'detail' : 'hot')
   }
-
   const backToSky = () => {
     setSelectedId(null)
     setPanel('hot')
   }
 
-  // ESC closes secondary panels on desktop.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') backToSky()
-    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && backToSky()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const markers = explore ? [...sky.tonight, ...sky.notTonight].slice(0, 18) : sky.markers
+
   return (
     <>
-      <SkyScene
-        loc={sky.loc}
-        when={now}
-        targets={sky.markers}
-        selectedId={selectedId}
-        onSelect={select}
-        flyTo={flyTo}
-        zoomNudge={zoomNudge}
-        initialView={initialView}
-      />
+      <Suspense fallback={<div className="stage sky-loading" aria-hidden="true" />}>
+        <SkyScene
+          loc={sky.loc}
+          when={when}
+          targets={markers}
+          selectedId={selectedId}
+          onSelect={select}
+          flyTo={flyTo}
+          zoomNudge={zoomNudge}
+          initialView={initialView}
+          explore={explore}
+          orientation={sensorOn ? orient.heading : null}
+        />
+      </Suspense>
 
       <div className="topbar">
         <button className="place" onClick={() => setPanel('location')}>
-          <strong>{sky.loc === HOME || sky.loc.latitudeDeg === HOME.latitudeDeg ? 'Mays Landing, NJ' : 'Custom location'}</strong>
+          <strong>{sky.loc.latitudeDeg === HOME.latitudeDeg ? 'Mays Landing, NJ' : 'Custom location'}</strong>
           <span>
-            {sky.weather
-              ? sky.weather.provider === 'none'
-                ? t('weather.unavailable')
-                : describeFreshness(sky.weather, now)
-              : 'Checking sky…'}
+            {planWindow
+              ? `${formatTime(planWindow.start)} – ${formatTime(planWindow.end)}`
+              : sky.weather
+                ? sky.weather.provider === 'none'
+                  ? t('weather.unavailable')
+                  : describeFreshness(sky.weather, now)
+                : t('weather.checking')}
           </span>
         </button>
-        <button className="iconbtn" aria-label="Menu" onClick={() => setPanel('menu')}>
-          <svg width="20" height="14" viewBox="0 0 20 14" aria-hidden="true">
-            <path d="M0 1h20M0 7h20M0 13h20" stroke="currentColor" strokeWidth="1.4" />
-          </svg>
-        </button>
+
+        <div className="topbar-right">
+          <div className="segmented" role="group" aria-label={t('explore.title')}>
+            <button
+              className={!explore ? 'on' : ''}
+              aria-pressed={!explore}
+              onClick={() => {
+                setExplore(false)
+                setExploreTime(null)
+              }}
+            >
+              {t('explore.live')}
+            </button>
+            <button
+              className={explore ? 'on' : ''}
+              aria-pressed={explore}
+              onClick={() => {
+                setExplore(true)
+                setExploreTime(new Date(now))
+              }}
+            >
+              {t('explore.explore')}
+            </button>
+          </div>
+          <button className="iconbtn" aria-label={t('menu.title')} onClick={() => setPanel('menu')}>
+            <svg width="20" height="14" viewBox="0 0 20 14" aria-hidden="true">
+              <path d="M0 1h20M0 7h20M0 13h20" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+          </button>
+        </div>
       </div>
+
+      {explore && (
+        <ExploreBar
+          when={when}
+          onChange={setExploreTime}
+          onReset={() => setExploreTime(new Date(now))}
+        />
+      )}
 
       <div className="zoom">
         <button aria-label="Zoom in" onClick={() => setZoomNudge((z) => z - 6)}>−</button>
         <button aria-label="Zoom out" onClick={() => setZoomNudge((z) => z + 6)}>+</button>
       </div>
 
+      {orient.state !== 'unsupported' && (
+        <button
+          className={`sensorbtn${sensorOn ? ' on' : ''}`}
+          onClick={() => (sensorOn ? orient.stop() : void orient.start())}
+        >
+          {sensorOn ? t('sensor.exit') : t('sensor.enable')}
+        </button>
+      )}
+      {orient.state === 'denied' && <p className="toast">{t('sensor.denied')}</p>}
+
       {panel === 'hot' && <HotSheet sky={sky} onSelect={select} onOpen={setPanel} />}
       {panel === 'detail' && selected && (
-        <DetailSheet s={selected} now={now} onBack={backToSky} />
+        <DetailSheet s={selected} sky={sky} onBack={backToSky} />
       )}
       {panel === 'notTonight' && <NotTonightSheet sky={sky} onBack={() => setPanel('hot')} />}
       {panel === 'menu' && <MenuSheet onGo={setPanel} onBack={backToSky} />}
-      {panel === 'equipment' && <EquipmentSheet onBack={backToSky} />}
+      {panel === 'equipment' && <EquipmentSheet sky={sky} onBack={backToSky} />}
       {panel === 'sources' && <SourcesSheet onBack={backToSky} />}
+      {panel === 'language' && <LanguageSheet onBack={backToSky} />}
+      {panel === 'imaging' && <ImagingSheet sky={sky} onBack={backToSky} />}
+      {panel === 'plan' && (
+        <PlanSheet
+          loc={sky.loc}
+          now={now}
+          active={planWindow}
+          onApply={(w) => {
+            setPlanWindow(w)
+            setPanel('hot')
+          }}
+          onClear={() => {
+            setPlanWindow(null)
+            setPanel('hot')
+          }}
+          onBack={backToSky}
+        />
+      )}
       {panel === 'location' && (
         <LocationSheet
           onBack={backToSky}
@@ -123,7 +207,7 @@ export default function App() {
             sky.setLoc(HOME)
             backToSky()
           }}
-          onUseMine={() => {
+          onUseMine={() =>
             navigator.geolocation?.getCurrentPosition(
               (p) => {
                 sky.setLoc({
@@ -137,7 +221,7 @@ export default function App() {
                 /* denied — keep the previous location, per the error philosophy */
               },
             )
-          }}
+          }
         />
       )}
     </>
@@ -146,15 +230,22 @@ export default function App() {
 
 // ---------------------------------------------------------------------------
 
+function positionOf(s: ScoredTarget, when: Date, loc: GeoLocation) {
+  const tt = s.target
+  const h =
+    tt.type === 'deep-sky'
+      ? fixedHorizontal(tt.raHoursJ2000, tt.decDegJ2000, when, loc, 'normal')
+      : bodyHorizontal(tt.body, when, loc, 'normal')
+  return { altDeg: h.altitudeDeg, azDeg: h.azimuthDeg }
+}
+
 function Ring({ score }: { score: number }) {
   const s = Math.round(score)
   const colour = s >= 75 ? 'var(--good)' : s >= 50 ? 'var(--fair)' : 'var(--poor)'
   return (
     <svg className="ring" width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
       <circle cx="21" cy="21" r="18" fill="none" stroke={colour} strokeWidth="1.4" opacity="0.85" />
-      <text className="ring-num" x="21" y="22" textAnchor="middle" dominantBaseline="middle">
-        {s}
-      </text>
+      <text className="ring-num" x="21" y="22" textAnchor="middle" dominantBaseline="middle">{s}</text>
     </svg>
   )
 }
@@ -169,85 +260,68 @@ function Sheet({
   children: React.ReactNode
 }) {
   return (
-    <section
-      className={`sheet${collapsed ? ' collapsed' : ''}`}
-      role="dialog"
-      aria-label={title}
-      aria-expanded={collapsed ? false : true}
-    >
-      <button className="grabber" onClick={onToggle ?? onBack} aria-label={`${collapsed ? 'Open' : 'Close'} ${title}`}>
+    <section className={`sheet${collapsed ? ' collapsed' : ''}`} role="dialog" aria-label={title}>
+      <button
+        className="grabber"
+        onClick={onToggle ?? onBack}
+        aria-label={`${collapsed ? 'Open' : 'Close'} ${title}`}
+      >
         <span className="label">{title}</span>
         <span className="label" aria-hidden="true">{onBack ? '✕' : collapsed ? '↑' : '↓'}</span>
       </button>
       <hr className="hairline" />
       <div className="sheet-body">
         {children}
-        {onBack && (
-          <button className="backtosky" onClick={onBack}>
-            {t('back.toSky')}
-          </button>
-        )}
+        {onBack && <button className="backtosky" onClick={onBack}>{t('back.toSky')}</button>}
       </div>
     </section>
   )
 }
 
+function kindLabel(s: ScoredTarget): string {
+  return s.target.kind.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+}
+function displayName(s: ScoredTarget): string {
+  return ('commonName' in s.target && s.target.commonName) || s.target.name
+}
+
 function TargetRow({ s, onSelect }: { s: ScoredTarget; onSelect: (id: string) => void }) {
-  const name = ('commonName' in s.target && s.target.commonName) || s.target.name
-  const sub =
-    'commonName' in s.target && s.target.commonName ? `${s.target.name} · ${kindLabel(s)}` : kindLabel(s)
+  const hasCommon = 'commonName' in s.target && s.target.commonName
   return (
     <button className="row" onClick={() => onSelect(s.target.id)}>
       <Ring score={s.observability.finalScore} />
       <span className="row-main">
-        <span className="row-name">{name}</span>
+        <span className="row-name">{displayName(s)}</span>
         <span className="row-sub">
-          {sub} · {Math.round(s.observability.peakAltitudeDeg)}° {compass(s.observability.peakAzimuthDeg)}
+          {hasCommon ? `${s.target.name} · ` : ''}{kindLabel(s)} ·{' '}
+          {Math.round(s.observability.peakAltitudeDeg)}° {compass(s.observability.peakAzimuthDeg)}
         </span>
       </span>
     </button>
   )
 }
 
-function kindLabel(s: ScoredTarget): string {
-  const k = s.target.kind
-  return k.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
-}
+type Sky = ReturnType<typeof useSky>
 
-function HotSheet({
-  sky, onSelect, onOpen,
-}: {
-  sky: ReturnType<typeof useSky>
-  onSelect: (id: string) => void
-  onOpen: (p: Panel) => void
-}) {
-  // Starts CLOSED: the sky is the application, and this is a handle over it.
+function HotSheet({ sky, onSelect, onOpen }: { sky: Sky; onSelect: (id: string) => void; onOpen: (p: Panel) => void }) {
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const list = showAll ? sky.tonight : sky.tonight.slice(0, 8)
   return (
     <Sheet title={t('hot.title')} collapsed={!open} onToggle={() => setOpen((v) => !v)}>
-      {sky.tonight.length === 0 && (
-        <p className="note">Nothing is above the horizon during tonight's dark window.</p>
-      )}
-      {list.map((s) => (
-        <TargetRow key={s.target.id} s={s} onSelect={onSelect} />
-      ))}
+      {sky.tonight.length === 0 && <p className="note">{t('hot.empty')}</p>}
+      {list.map((s) => <TargetRow key={s.target.id} s={s} onSelect={onSelect} />)}
       {!showAll && sky.tonight.length > 8 && (
         <button className="row" onClick={() => setShowAll(true)}>
           <span className="row-main">
-            <span className="row-name" style={{ color: 'var(--muted)' }}>
-              {t('hot.seeAll')} ({sky.tonight.length}) ›
-            </span>
+            <span className="row-name muted">{t('hot.seeAll')} ({sky.tonight.length}) ›</span>
           </span>
         </button>
       )}
       {sky.notableMissing.length > 0 && (
         <button className="row" onClick={() => onOpen('notTonight')}>
           <span className="row-main">
-            <span className="row-name" style={{ color: 'var(--muted)' }}>
-              {t('hot.notTonight', sky.notableMissing.length)} ›
-            </span>
+            <span className="row-name muted">{t('hot.notTonight', sky.notableMissing.length)} ›</span>
           </span>
         </button>
       )}
@@ -255,26 +329,16 @@ function HotSheet({
   )
 }
 
-function NotTonightSheet({
-  sky, onBack,
-}: {
-  sky: ReturnType<typeof useSky>
-  onBack: () => void
-}) {
+function NotTonightSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
   return (
     <Sheet title={t('notTonight.title')} onBack={onBack}>
-      <p className="note">
-        These are worth knowing about, but not available during tonight's window. They are kept out
-        of the main list rather than shown at 0%.
-      </p>
-      {sky.notTonight.slice(0, 24).map((s) => (
-        <div key={s.target.id} className="row" style={{ cursor: 'default' }}>
+      <p className="note">{t('notTonight.intro')}</p>
+      {sky.notTonight.slice(0, 30).map((s) => (
+        <div key={s.target.id} className="row static">
           <span className="row-main">
-            <span className="row-name">
-              {('commonName' in s.target && s.target.commonName) || s.target.name}
-            </span>
+            <span className="row-name">{displayName(s)}</span>
             <span className="row-sub">
-              {s.observability.reason ? t(`reason.${s.observability.reason}` as never) : '—'}
+              {s.observability.reason ? t(`reason.${s.observability.reason}` as StringKey) : '—'}
             </span>
           </span>
         </div>
@@ -283,139 +347,303 @@ function NotTonightSheet({
   )
 }
 
-function DetailSheet({ s, now, onBack }: { s: ScoredTarget; now: Date; onBack: () => void }) {
-  const setup = useMemo(() => setupFor(s), [s])
+function DetailSheet({ s, sky, onBack }: { s: ScoredTarget; sky: Sky; onBack: () => void }) {
+  const setup = useMemo(() => setupFor(s, sky.inventory), [s, sky.inventory])
   const o = s.observability
-  const name = ('commonName' in s.target && s.target.commonName) || s.target.name
-  const conf = t(`confidence.${o.confidence}` as never)
+  const img = imageFor(s.target.id)
 
   return (
     <Sheet title={s.target.name} onBack={onBack}>
-      <h2 className="detail-title">{name}</h2>
+      <h2 className="detail-title">{displayName(s)}</h2>
       <p className="detail-sub">
         {kindLabel(s)}
         {'constellation' in s.target && s.target.constellation ? ` · ${s.target.constellation}` : ''}
       </p>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
+      {img && (
+        <figure className="shot">
+          <img src={img.url} alt={img.title} loading="lazy" decoding="async" />
+          <figcaption>
+            {img.title} · {img.credit} · {img.license}
+            <br />
+            <em>{t('detail.imageNote')}</em>
+          </figcaption>
+        </figure>
+      )}
+
+      <div className="scoreline">
         <Ring score={o.finalScore} />
         <div>
           <div className="label">{t('detail.score')}</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{conf}</div>
+          <div className="conf">{t(`confidence.${o.confidence}` as StringKey)}</div>
         </div>
       </div>
 
       <div className="facts">
-        <div className="fact">
-          <span className="label">{t('detail.best')}</span>
-          <span className="fact-v">
-            {o.bestBlock
-              ? `${formatTime(o.bestBlock.start)} – ${formatTime(o.bestBlock.end)}`
-              : formatTime(o.peakAtUtc)}
-            <em>{o.minutesUseful} minutes usable tonight</em>
-          </span>
-        </div>
-        <div className="fact">
-          <span className="label">{t('detail.look')}</span>
-          <span className="fact-v">
-            {compass(o.peakAzimuthDeg)} · {Math.round(o.peakAltitudeDeg)}° up
-            <em>at {formatTime(o.peakAtUtc)}</em>
-          </span>
-        </div>
-        <div className="fact">
-          <span className="label">{t('detail.use')}</span>
-          <span className="fact-v">
-            {setup.rec ? (
-              <>
-                {setup.rec.eyepiece.brand} {setup.rec.eyepiece.model}
-                {setup.rec.eyepiece.focal.kind === 'zoom' && ` at ${setup.rec.eyepieceFocalMm} mm`}
-                {setup.rec.barlow && ` + ${setup.rec.barlow.model}`}
-                <em>
-                  {Math.round(setup.rec.magnification)}× · {setup.rec.exitPupilMm.toFixed(1)} mm exit
-                  pupil · {(setup.rec.trueFovDeg * 60).toFixed(0)}′ field
-                </em>
-              </>
-            ) : (
-              'No suitable eyepiece'
-            )}
-          </span>
-        </div>
-        <div className="fact">
-          <span className="label">{t('detail.filter')}</span>
-          <span className="fact-v">{setup.rec?.filter ? setup.rec.filter.model : t('detail.noFilter')}</span>
-        </div>
+        <Fact k={t('detail.best')}
+          v={o.bestBlock ? `${formatTime(o.bestBlock.start)} – ${formatTime(o.bestBlock.end)}` : formatTime(o.peakAtUtc)}
+          sub={t('detail.minutes', o.minutesUseful)} />
+        <Fact k={t('detail.look')}
+          v={`${compass(o.peakAzimuthDeg)} · ${Math.round(o.peakAltitudeDeg)}° ${t('detail.up')}`}
+          sub={formatTime(o.peakAtUtc)} />
+        <Fact k={t('detail.use')}
+          v={setup.rec
+            ? `${setup.rec.eyepiece.brand} ${setup.rec.eyepiece.model}` +
+              (setup.rec.eyepiece.focal.kind === 'zoom' ? ` @ ${setup.rec.eyepieceFocalMm} mm` : '') +
+              (setup.rec.barlow ? ` + ${setup.rec.barlow.model}` : '')
+            : t('detail.noEyepiece')}
+          sub={setup.rec
+            ? `${Math.round(setup.rec.magnification)}× · ${setup.rec.exitPupilMm.toFixed(1)} mm · ${(setup.rec.trueFovDeg * 60).toFixed(0)}′`
+            : undefined} />
+        <Fact k={t('detail.filter')} v={setup.rec?.filter ? setup.rec.filter.model : t('detail.noFilter')} />
+        <Fact k={t('detail.expect')} v={visualExpectation(s.target.id, s.target.kind)} />
       </div>
 
-      {setup.rec?.reasoning.map((r, i) => (
-        <p key={i} className="note">{r}</p>
-      ))}
-      {setup.rec?.warnings.map((w, i) => (
-        <p key={i} className="note warn">{w}</p>
-      ))}
+      {setup.rec?.reasoning.map((r, i) => <p key={i} className="note">{renderNote(r)}</p>)}
+      {setup.rec?.warnings.map((w, i) => <p key={i} className="note warn">{renderNote(w)}</p>)}
 
-      <hr className="hairline" style={{ margin: '16px 0 12px' }} />
-      <div className="label" style={{ marginBottom: 8 }}>Why this score</div>
-      {o.factors
-        .filter((f) => f.weight > 0)
-        .map((f) => (
-          <div key={f.id} className="fact">
-            <span className="label">{f.label}</span>
-            <span className="fact-v">
-              {Math.round(f.value * 100)}%
-              {f.proxy && <span className="chip" style={{ marginLeft: 8 }}>proxy</span>}
-              {f.assumed && <span className="chip" style={{ marginLeft: 8 }}>assumed</span>}
-              <em>{f.explain}</em>
-            </span>
-          </div>
-        ))}
-      <p className="note">
-        An observability score, not a probability of seeing something. Time shown for {formatTime(now)}.
-      </p>
+      <hr className="hairline sp" />
+      <div className="label mb">{t('detail.why')}</div>
+      {o.factors.filter((f) => f.weight > 0).map((f) => (
+        <div key={f.id} className="fact">
+          <span className="label">{t(`factor.${f.id}` as StringKey)}</span>
+          <span className="fact-v">
+            {Math.round(f.value * 100)}%
+            {f.proxy && <span className="chip">{t('chip.proxy')}</span>}
+            {f.assumed && <span className="chip">{t('chip.assumed')}</span>}
+            <em>{f.explain}</em>
+          </span>
+        </div>
+      ))}
+      <p className="note">{t('detail.notAProbability')}</p>
     </Sheet>
+  )
+}
+
+function Fact({ k, v, sub }: { k: string; v: string; sub?: string }) {
+  return (
+    <div className="fact">
+      <span className="label">{k}</span>
+      <span className="fact-v">{v}{sub && <em>{sub}</em>}</span>
+    </div>
   )
 }
 
 function MenuSheet({ onGo, onBack }: { onGo: (p: Panel) => void; onBack: () => void }) {
   const items: [string, Panel][] = [
     [t('menu.liveSky'), null],
+    [t('menu.plan'), 'plan'],
+    [t('menu.imaging'), 'imaging'],
     [t('menu.equipment'), 'equipment'],
     [t('menu.location'), 'location'],
+    [t('menu.language'), 'language'],
     [t('menu.sources'), 'sources'],
   ]
   return (
-    <Sheet title="Menu" onBack={onBack}>
+    <Sheet title={t('menu.title')} onBack={onBack}>
       {items.map(([label, p]) => (
         <button key={label} className="row" onClick={() => (p ? onGo(p) : onBack())}>
           <span className="row-main"><span className="row-name">{label}</span></span>
         </button>
       ))}
-      <p className="note">
-        Plan Observing, Explore Sky, Imaging and Crnogorski are not built yet.
-      </p>
+      <p className="note">{t('explore.note')}</p>
     </Sheet>
   )
 }
 
-function EquipmentSheet({ onBack }: { onBack: () => void }) {
-  const all = [
-    ...DEFAULT_INVENTORY.eyepieces,
-    ...DEFAULT_INVENTORY.barlows,
-    ...DEFAULT_INVENTORY.filters,
+function EquipmentSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ brand: '', model: '', focalMm: '' })
+  const [err, setErr] = useState<string | null>(null)
+
+  type GearRow = {
+    id: string; brand: string; model: string
+    verified: boolean; enabled: boolean; provenance: string
+  }
+  const groups: [string, readonly GearRow[]][] = [
+    ['Eyepieces', sky.inventory.eyepieces],
+    ['Barlows', sky.inventory.barlows],
+    ['Filters', sky.inventory.filters],
   ]
+
   return (
     <Sheet title={t('menu.equipment')} onBack={onBack}>
-      {all.map((g) => (
-        <div key={g.id} className="row" style={{ cursor: 'default' }}>
+      {groups.map(([heading, items]) => (
+        <div key={heading}>
+          <div className="label mb sp">{heading}</div>
+          {items.map((g) => (
+            <div key={g.id} className="row static">
+              <span className="row-main">
+                <span className="row-name">{g.brand} {g.model}</span>
+                <span className="row-sub">
+                  {g.verified ? `${t('equipment.verified')} ✓` : t('equipment.unverified')}
+                </span>
+              </span>
+              {g.provenance === 'user' && (
+                <button
+                  className="linkbtn"
+                  onClick={() => { removeUserEyepiece(g.id); sky.reloadInventory() }}
+                >
+                  {t('equipment.remove')}
+                </button>
+              )}
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={g.enabled}
+                  onChange={(e) => { setEnabled(g.id, e.target.checked); sky.reloadInventory() }}
+                  aria-label={`${g.brand} ${g.model} — ${g.enabled ? t('equipment.on') : t('equipment.off')}`}
+                />
+                <span aria-hidden="true" />
+              </label>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {!adding ? (
+        <button className="row" onClick={() => setAdding(true)}>
+          <span className="row-main"><span className="row-name muted">{t('equipment.add')} ›</span></span>
+        </button>
+      ) : (
+        <div className="form">
+          <div className="label mb sp">{t('equipment.addTitle')}</div>
+          <label className="field">
+            <span className="label">{t('equipment.brand')}</span>
+            <input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+          </label>
+          <label className="field">
+            <span className="label">{t('equipment.model')}</span>
+            <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+          </label>
+          <label className="field">
+            <span className="label">{t('equipment.focal')}</span>
+            <input inputMode="decimal" value={form.focalMm}
+              onChange={(e) => setForm({ ...form, focalMm: e.target.value })} />
+          </label>
+          {err && <p className="note warn">{err}</p>}
+          <p className="note">{t('equipment.newIsUnverified')}</p>
+          <button
+            className="primary"
+            onClick={() => {
+              const r = addUserEyepiece({
+                brand: form.brand, model: form.model, focalMm: Number(form.focalMm),
+              })
+              if (r.ok) {
+                setAdding(false)
+                setForm({ brand: '', model: '', focalMm: '' })
+                setErr(null)
+                sky.reloadInventory()
+              } else setErr(r.reason)
+            }}
+          >
+            {t('equipment.save')}
+          </button>
+        </div>
+      )}
+
+      <p className="note">{t('equipment.unverifiedNote')}</p>
+    </Sheet>
+  )
+}
+
+function PlanSheet({
+  loc, now, active, onApply, onClear, onBack,
+}: {
+  loc: GeoLocation
+  now: Date
+  active: ObservingWindow | null
+  onApply: (w: ObservingWindow) => void
+  onClear: () => void
+  onBack: () => void
+}) {
+  const [dateStr, setDateStr] = useState(() => toDateInput(active?.start ?? now))
+  const date = useMemo(() => fromDateInput(dateStr), [dateStr])
+  const suggested = useMemo(() => windowForDate(date, loc), [date, loc])
+  const [fromStr, setFromStr] = useState(() => toTimeInput(active?.start ?? suggested.start))
+  const [toStr, setToStr] = useState(() => toTimeInput(active?.end ?? suggested.end))
+
+  // When the date changes, re-suggest sensible times for THAT night rather than
+  // keeping clock times that may no longer overlap darkness.
+  useEffect(() => {
+    setFromStr(toTimeInput(suggested.start))
+    setToStr(toTimeInput(suggested.end))
+  }, [suggested.start, suggested.end])
+
+  const build = (): ObservingWindow => {
+    const start = withTime(suggested.start, fromStr)
+    let end = withTime(suggested.end, toStr)
+    // An end time earlier than the start means the user meant after midnight.
+    if (end.getTime() <= start.getTime()) end = new Date(end.getTime() + 86_400_000)
+    return { start, end, stepMinutes: 10 }
+  }
+
+  return (
+    <Sheet title={t('plan.title')} onBack={onBack}>
+      <div className="facts">
+        <label className="fact">
+          <span className="label">{t('plan.date')}</span>
+          <input type="date" value={dateStr} onChange={(e) => setDateStr(e.target.value)} />
+        </label>
+        <label className="fact">
+          <span className="label">{t('plan.from')}</span>
+          <input type="time" value={fromStr} onChange={(e) => setFromStr(e.target.value)} />
+        </label>
+        <label className="fact">
+          <span className="label">{t('plan.to')}</span>
+          <input type="time" value={toStr} onChange={(e) => setToStr(e.target.value)} />
+        </label>
+      </div>
+
+      <p className="note">
+        {formatDate(date)} · {t('plan.window')} {formatTime(suggested.start)} – {formatTime(suggested.end)}
+      </p>
+      {!suggested.hasDarkness && <p className="note warn">{t('plan.noDarkness')}</p>}
+
+      <button className="primary" onClick={() => onApply(build())}>{t('plan.show')}</button>
+      {active && <button className="linkbtn wide" onClick={onClear}>{t('plan.reset')}</button>}
+    </Sheet>
+  )
+}
+
+function ImagingSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
+  const plans = useMemo(
+    () =>
+      sky.tonight
+        .map((s) => ({ s, plan: planImaging({ target: s.target, inventory: sky.inventory }) }))
+        .sort((a, b) => Number(b.plan.suitable) - Number(a.plan.suitable)),
+    [sky.tonight, sky.inventory],
+  )
+  const suitable = plans.filter((p) => p.plan.suitable)
+  const not = plans.filter((p) => !p.plan.suitable).slice(0, 6)
+
+  return (
+    <Sheet title={t('imaging.title')} onBack={onBack}>
+      <p className="note">{t('imaging.intro')}</p>
+
+      <div className="label mb sp">{t('imaging.suitable')}</div>
+      {suitable.length === 0 && <p className="note">{t('hot.empty')}</p>}
+      {suitable.map(({ s, plan }) => (
+        <div key={s.target.id} className="row static">
           <span className="row-main">
-            <span className="row-name">{g.brand} {g.model}</span>
+            <span className="row-name">{plan.targetName}</span>
             <span className="row-sub">
-              {g.verified ? t('equipment.verified') : t('equipment.unverified')}
-              {g.verified && ' ✓'}
+              {plan.barlow ? plan.barlow.model : t('imaging.native')} · {plan.effectiveFocalLengthMm} mm · f/{plan.effectiveFocalRatio}
             </span>
           </span>
         </div>
       ))}
-      <p className="note">{t('equipment.unverifiedNote')}</p>
+      {suitable[0]?.plan.notes.map((n, i) => <p key={i} className="note">{n}</p>)}
+
+      <div className="label mb sp">{t('imaging.notSuitable')}</div>
+      {not.map(({ s, plan }) => (
+        <div key={s.target.id} className="row static">
+          <span className="row-main">
+            <span className="row-name">{plan.targetName}</span>
+            <span className="row-sub wrap">{plan.reason}</span>
+          </span>
+        </div>
+      ))}
     </Sheet>
   )
 }
@@ -425,16 +653,16 @@ function SourcesSheet({ onBack }: { onBack: () => void }) {
   const assumptions = sources.filter((s) => s.kind === 'assumption')
   const rest = sources.filter((s) => s.kind !== 'assumption')
   return (
-    <Sheet title={t('menu.sources')} onBack={onBack}>
+    <Sheet title={t('sources.title')} onBack={onBack}>
       <p className="note">{t('sources.note')}</p>
-      <div className="label" style={{ margin: '16px 0 6px' }}>{t('sources.assumptions')}</div>
+      <div className="label mb sp">{t('sources.assumptions')}</div>
       {assumptions.map((s) => (
         <div key={s.id} className="fact">
           <span className="label">{s.status}</span>
           <span className="fact-v">{s.title}<em>{s.citation}</em></span>
         </div>
       ))}
-      <div className="label" style={{ margin: '18px 0 6px' }}>Data and formulas</div>
+      <div className="label mb sp">{t('sources.data')}</div>
       {rest.map((s) => (
         <div key={s.id} className="fact">
           <span className="label">{s.kind}</span>
@@ -448,25 +676,60 @@ function SourcesSheet({ onBack }: { onBack: () => void }) {
   )
 }
 
+function LanguageSheet({ onBack }: { onBack: () => void }) {
+  const cur = getLang()
+  return (
+    <Sheet title={t('menu.language')} onBack={onBack}>
+      {LANGUAGES.map((l) => (
+        <button key={l.code} className="row" onClick={() => setLang(l.code)} aria-pressed={cur === l.code}>
+          <span className="flag" aria-hidden="true">{l.flag}</span>
+          <span className="row-main"><span className="row-name">{l.label}</span></span>
+          {cur === l.code && <span aria-hidden="true">✓</span>}
+        </button>
+      ))}
+    </Sheet>
+  )
+}
+
 function LocationSheet({
   onBack, onHome, onUseMine,
-}: {
-  onBack: () => void
-  onHome: () => void
-  onUseMine: () => void
-}) {
+}: { onBack: () => void; onHome: () => void; onUseMine: () => void }) {
   return (
-    <Sheet title={t('menu.location')} onBack={onBack}>
+    <Sheet title={t('location.title')} onBack={onBack}>
       <button className="row" onClick={onUseMine}>
         <span className="row-main"><span className="row-name">{t('location.use')}</span></span>
       </button>
       <button className="row" onClick={onHome}>
         <span className="row-main"><span className="row-name">{t('location.home')}</span></span>
       </button>
-      <p className="note">
-        Your location is stored only on this device and is never sent anywhere. The home setting is
-        the 08330 ZIP centroid, not a street address.
-      </p>
+      <p className="note">{t('location.note')}</p>
     </Sheet>
   )
 }
+
+function ExploreBar({
+  when, onChange, onReset,
+}: { when: Date; onChange: (d: Date) => void; onReset: () => void }) {
+  // Hours offset from the anchor, so dragging scrubs forward and back in time.
+  const [offset, setOffset] = useState(0)
+  const base = useMemo(() => new Date(when.getTime() - offset * 3_600_000), [])
+  return (
+    <div className="explorebar">
+      <span className="label">{t('explore.time')}</span>
+      <input
+        type="range" min={-12} max={12} step={0.25} value={offset}
+        aria-label={t('explore.time')}
+        onChange={(e) => {
+          const v = Number(e.target.value)
+          setOffset(v)
+          onChange(new Date(base.getTime() + v * 3_600_000))
+        }}
+      />
+      <button className="linkbtn" onClick={() => { setOffset(0); onReset() }}>
+        {formatTime(when)}
+      </button>
+    </div>
+  )
+}
+
+export { TARGETS_BY_ID }

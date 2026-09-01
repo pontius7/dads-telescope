@@ -35,6 +35,36 @@ import {
   type Inventory,
 } from '../data/inventory'
 
+/**
+ * A note the UI will render.
+ *
+ * The domain emits a CODE plus numbers, never a finished sentence, because it
+ * is a pure module and must not depend on the active language. The UI turns
+ * these into text. This is what makes the reasoning translatable without
+ * putting i18n into the astronomy layer.
+ */
+export interface RecNote {
+  key: NoteKey
+  params?: Record<string, string | number>
+}
+
+export type NoteKey =
+  | 'note.optics'
+  | 'note.barlow'
+  | 'note.uhcUsed'
+  | 'note.noFilterNeeded'
+  | 'note.colourOptional'
+  | 'deny.galaxy'
+  | 'deny.openCluster'
+  | 'deny.globular'
+  | 'deny.reflectionNebula'
+  | 'deny.stars'
+  | 'deny.planet'
+  | 'deny.moon'
+  | 'warn.largerThanField'
+  | 'warn.exitPupilExceedsEye'
+  | 'warn.afovUnverified'
+
 export interface Recommendation {
   eyepiece: Eyepiece
   /** The focal length actually used — snapped to a detent for click-stop zooms. */
@@ -53,8 +83,9 @@ export interface Recommendation {
   /** Below 203 mm when the exit pupil exceeds the observer's eye pupil. */
   effectiveApertureMm: number
   fit: number
-  reasoning: string[]
-  warnings: string[]
+  /** Structured, translatable. Render with `renderNote` in the UI. */
+  reasoning: RecNote[]
+  warnings: RecNote[]
   evidence: EvidenceRef[]
 }
 
@@ -131,16 +162,15 @@ const UHC_ALLOWED: ReadonlySet<TargetKind> = new Set<TargetKind>([
  * made. Reflection nebulae are the one people most often get wrong: they shine
  * by SCATTERED starlight, which is broadband continuum, so a UHC only dims them.
  */
-const UHC_DENIED_REASON: Partial<Record<TargetKind, string>> = {
-  galaxy: 'Galaxies shine by broadband starlight; a UHC blocks most of it and gains nothing.',
-  'open-cluster': 'Star clusters emit continuum light; a UHC only makes them dimmer.',
-  globular: 'Globular clusters emit continuum light; a UHC costs you the faint outer stars.',
-  'reflection-nebula':
-    'Reflection nebulae shine by scattered starlight, not line emission — a UHC does not help.',
-  'double-star': 'Stars emit continuum; a filter only dims the pair.',
-  asterism: 'Stars emit continuum; a filter only dims them.',
-  planet: 'Planets shine by reflected sunlight; a UHC destroys brightness and colour.',
-  moon: 'The Moon shines by reflected sunlight; a UHC is the wrong tool entirely.',
+const UHC_DENIED_REASON: Partial<Record<TargetKind, NoteKey>> = {
+  galaxy: 'deny.galaxy',
+  'open-cluster': 'deny.openCluster',
+  globular: 'deny.globular',
+  'reflection-nebula': 'deny.reflectionNebula',
+  'double-star': 'deny.stars',
+  asterism: 'deny.stars',
+  planet: 'deny.planet',
+  moon: 'deny.moon',
 }
 
 // ---------------------------------------------------------------------------
@@ -298,8 +328,8 @@ function build(
     return { reason: `${label(ep, bl, fc.focalMm)} lets the object cross the field in ${Math.round(drift)}s — too much nudging.` }
   }
 
-  const warnings: string[] = []
-  const reasoning: string[] = []
+  const warnings: RecNote[] = []
+  const reasoning: RecNote[] = []
   const evidence: EvidenceRef[] = [cite('formula.magnification'), cite('formula.exit-pupil')]
 
   let fillRatio: number | null = null
@@ -308,9 +338,10 @@ function build(
     if (fillRatio < FILL_RATIO) {
       // Not an automatic rejection: some objects are simply larger than any
       // field this telescope can produce, and the honest answer is to say so.
-      warnings.push(
-        `This object spans ${sizeArcmin.toFixed(0)}′ and the field here is ${(tfov * 60).toFixed(0)}′ — you will see part of it, not all of it.`,
-      )
+      warnings.push({
+        key: 'warn.largerThanField',
+        params: { size: sizeArcmin.toFixed(0), field: (tfov * 60).toFixed(0) },
+      })
     }
   }
 
@@ -318,17 +349,31 @@ function build(
   let effectiveAperture = TELESCOPE.apertureMm
   if (exitPupil > prefs.eyePupilMm) {
     effectiveAperture = (TELESCOPE.apertureMm * prefs.eyePupilMm) / exitPupil
-    warnings.push(
-      `The ${exitPupil.toFixed(1)} mm exit pupil is wider than a ${prefs.eyePupilMm} mm dark-adapted pupil, so you are effectively using ${effectiveAperture.toFixed(0)} mm of the 203 mm.`,
-    )
+    warnings.push({
+      key: 'warn.exitPupilExceedsEye',
+      params: {
+        exitPupil: exitPupil.toFixed(1),
+        eyePupil: prefs.eyePupilMm,
+        effective: effectiveAperture.toFixed(0),
+        aperture: TELESCOPE.apertureMm,
+      },
+    })
   }
 
   if (ep.afov.kind === 'range' && ep.afov.status !== 'verified') {
-    warnings.push(`Field-of-view figures for the ${ep.model} are unconfirmed, so framing advice is approximate.`)
+    warnings.push({ key: 'warn.afovUnverified', params: { model: ep.model } })
   }
 
-  reasoning.push(`${Math.round(mag)}× at a ${exitPupil.toFixed(1)} mm exit pupil, ${(tfov * 60).toFixed(0)}′ of true field.`)
-  if (bl) reasoning.push(`The ${bl.model} multiplies the ${fc.focalMm} mm eyepiece to an effective ${(fc.focalMm / factor).toFixed(1)} mm.`)
+  reasoning.push({
+    key: 'note.optics',
+    params: { mag: Math.round(mag), exitPupil: exitPupil.toFixed(1), field: (tfov * 60).toFixed(0) },
+  })
+  if (bl) {
+    reasoning.push({
+      key: 'note.barlow',
+      params: { barlow: bl.model, focal: fc.focalMm, effective: (fc.focalMm / factor).toFixed(1) },
+    })
+  }
 
   const fit = scoreFit(kind, exitPupil, fillRatio, afov, drift)
 
@@ -400,19 +445,17 @@ function attachFilter(
     // A UHC costs light; do not stack it with an already-small exit pupil.
     if (worthIt && rec.exitPupilMm >= 2.0 && uhc.threadMm >= rec.eyepiece.barrelMm) {
       rec.filter = uhc
-      rec.reasoning.push(
-        'The UHC passes the oxygen and hydrogen lines this object emits while blocking the rest of the sky glow.',
-      )
+      rec.reasoning.push({ key: 'note.uhcUsed' })
       rec.evidence.push(cite('convention.uhc-line-emission-only'))
       return
     }
-    rec.reasoning.push('No filter needed — the sky is dark enough that a UHC would only cost you light.')
+    rec.reasoning.push({ key: 'note.noFilterNeeded' })
     return
   }
 
   const denial = UHC_DENIED_REASON[kind]
   if (denial) {
-    rec.reasoning.push(`No filter. ${denial}`)
+    rec.reasoning.push({ key: denial })
     rec.evidence.push(cite('convention.uhc-line-emission-only'))
   }
 
@@ -421,7 +464,7 @@ function attachFilter(
     const orange = filters.find((f) => f.wratten === '21')
     if (orange) {
       rec.filter = orange
-      rec.reasoning.push('Optional: the #21 orange filter can lift belt and surface contrast.')
+      rec.reasoning.push({ key: 'note.colourOptional', params: { filter: orange.model } })
       rec.evidence.push(cite('convention.wratten-planetary'))
     }
   }

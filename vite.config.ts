@@ -47,6 +47,28 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * Split the 3D stack out of the main chunk.
+         *
+         * Three.js is ~85% of this bundle. Keeping it separate means the UI
+         * shell, the catalogue and the domain logic download and parse first,
+         * so the sheet is usable while the renderer is still arriving — which
+         * matters on cellular, where the whole thing was one 353 KB gzipped
+         * blob before.
+         */
+        manualChunks: {
+          three: ['three'],
+          r3f: ['@react-three/fiber', '@react-three/drei'],
+          astronomy: ['astronomy-engine'],
+        },
+      },
+    },
+    // The 3D chunk is legitimately large; warn above that rather than on every build.
+    chunkSizeWarningLimit: 900,
+  },
   test: {
     globals: true,
     environment: 'node',

@@ -166,13 +166,13 @@ describe('GUARANTEE 3: UHC is never applied indiscriminately', () => {
 
   it('explains WHY a galaxy gets no UHC, rather than silently omitting it', () => {
     const r = recommend({ target: M31, inventory: DEFAULT_INVENTORY, conditions: BRIGHT })
-    expect(r.primary!.reasoning.join(' ')).toMatch(/broadband starlight/i)
+    expect(r.primary!.reasoning.map((n) => n.key)).toContain('deny.galaxy')
   })
 
   it('gets the reflection-nebula case right — the one most often confused', () => {
     const r = recommend({ target: M78, inventory: DEFAULT_INVENTORY, conditions: BRIGHT })
     expect(r.primary!.filter).toBeNull()
-    expect(r.primary!.reasoning.join(' ')).toMatch(/scattered starlight/i)
+    expect(r.primary!.reasoning.map((n) => n.key)).toContain('deny.reflectionNebula')
   })
 
   it('DOES suggest a UHC for an emission nebula under a bright sky', () => {
@@ -182,7 +182,7 @@ describe('GUARANTEE 3: UHC is never applied indiscriminately', () => {
   it('does NOT suggest a UHC for the same nebula under a dark, moonless sky', () => {
     expect(uhcUsed(M42, DARK)).toBe(false)
     const r = recommend({ target: M42, inventory: DEFAULT_INVENTORY, conditions: DARK })
-    expect(r.primary!.reasoning.join(' ')).toMatch(/no filter needed/i)
+    expect(r.primary!.reasoning.map((n) => n.key)).toContain('note.noFilterNeeded')
   })
 
   it('colour filters are off by default, even for planets', () => {
@@ -264,7 +264,7 @@ describe('framing and honesty', () => {
   it('warns rather than lies when an object is larger than any available field', () => {
     // M31 spans 190'; the widest field this kit produces is about 115'.
     const r = recommend({ target: M31, inventory: DEFAULT_INVENTORY, conditions: DARK })
-    expect(r.primary!.warnings.join(' ')).toMatch(/part of it, not all of it/i)
+    expect(r.primary!.warnings.map((n) => n.key)).toContain('warn.largerThanField')
   })
 
   it('flags the 40 mm eyepiece losing aperture to a 6 mm eye pupil', () => {
@@ -273,7 +273,7 @@ describe('framing and honesty', () => {
     const inv: Inventory = { ...DEFAULT_INVENTORY, eyepieces: EYEPIECES.filter((e) => e.id === 'celestron-elux-40') }
     const r = recommend({ target: M45, inventory: inv, conditions: DARK })
     expect(r.primary!.effectiveApertureMm).toBeLessThan(203)
-    expect(r.primary!.warnings.join(' ')).toMatch(/effectively using/i)
+    expect(r.primary!.warnings.map((n) => n.key)).toContain('warn.exitPupilExceedsEye')
   })
 
   it('picks a high-power combination for a tiny planetary nebula', () => {
