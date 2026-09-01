@@ -50,7 +50,7 @@ describe('GUARANTEE 1: the Explore Scientific 8.5 mm never appears', () => {
       'Astro-Tech 13 mm UWA 82°',
       'Baader Hyperion Zoom Mark IV 8-24 mm',
       'Celestron E-Lux 40 mm',
-      'Celestron 25 mm Plössl',
+      'Celestron 25 mm Omni Plössl',
       'SVBONY 7-21 mm Zoom',
     ])
     expect(EYEPIECES).toHaveLength(6)

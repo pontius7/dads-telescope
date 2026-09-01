@@ -13,6 +13,8 @@ import type { ObservingWindow } from './domain/scoring'
 import { sourcesForDisplay } from './data/evidence'
 import { setEnabled, addUserEyepiece, removeUserEyepiece } from './data/inventoryStore'
 import { imageFor, visualExpectation } from './data/imagery'
+import { distanceTo, formatDistance } from './domain/distance'
+const ObjectView = lazy(() => import('./sky/ObjectView').then((m) => ({ default: m.ObjectView })))
 import { planImaging } from './domain/imaging'
 import { describeFreshness } from './services/weather'
 import { useOrientation } from './useOrientation'
@@ -176,7 +178,7 @@ export default function App() {
 
       {panel === 'hot' && <HotSheet sky={sky} onSelect={select} onOpen={setPanel} />}
       {panel === 'detail' && selected && (
-        <DetailSheet s={selected} sky={sky} onBack={backToSky} />
+        <DetailSheet s={selected} sky={sky} when={when} onBack={backToSky} />
       )}
       {panel === 'notTonight' && <NotTonightSheet sky={sky} onBack={() => setPanel('hot')} />}
       {panel === 'menu' && <MenuSheet onGo={setPanel} onBack={backToSky} />}
@@ -347,10 +349,11 @@ function NotTonightSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
   )
 }
 
-function DetailSheet({ s, sky, onBack }: { s: ScoredTarget; sky: Sky; onBack: () => void }) {
+function DetailSheet({ s, sky, when, onBack }: { s: ScoredTarget; sky: Sky; when: Date; onBack: () => void }) {
   const setup = useMemo(() => setupFor(s, sky.inventory), [s, sky.inventory])
   const o = s.observability
   const img = imageFor(s.target.id)
+  const dist = useMemo(() => distanceTo(s.target, when), [s.target, when])
 
   return (
     <Sheet title={s.target.name} onBack={onBack}>
@@ -360,15 +363,24 @@ function DetailSheet({ s, sky, onBack }: { s: ScoredTarget; sky: Sky; onBack: ()
         {'constellation' in s.target && s.target.constellation ? ` · ${s.target.constellation}` : ''}
       </p>
 
+      <Suspense fallback={<div className="objview objview-skeleton" aria-hidden="true" />}>
+        <ObjectView target={s.target} when={when} />
+      </Suspense>
+
+      {dist && (
+        <div className="distance">
+          <span className="distance-v">{formatDistance(dist)}</span>
+          <span className="distance-sub">
+            {t('detail.lightLeft')} {dist.lightTravel}
+            {dist.uncertaintyNote ? ` · ${dist.uncertaintyNote}` : ''}
+          </span>
+        </div>
+      )}
+
       {img && (
-        <figure className="shot">
-          <img src={img.url} alt={img.title} loading="lazy" decoding="async" />
-          <figcaption>
-            {img.title} · {img.credit} · {img.license}
-            <br />
-            <em>{t('detail.imageNote')}</em>
-          </figcaption>
-        </figure>
+        <p className="credit">
+          {img.title} · {img.credit} · {img.license} — {t('detail.imageNote')}
+        </p>
       )}
 
       <div className="scoreline">

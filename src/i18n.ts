@@ -46,6 +46,9 @@ const en = {
   'detail.notAProbability':
     'An observability score, not a probability of seeing something.',
   'detail.imageNote': 'Telescope photograph, not the eyepiece view.',
+  'detail.distance': 'Distance',
+  'detail.lightLeft': 'Light left it',
+  'detail.dragRotate': 'Drag to rotate',
   'weather.unavailable': 'Weather unavailable',
   'weather.checking': 'Checking sky…',
   'confidence.high': 'High confidence',
@@ -186,6 +189,9 @@ const me: Record<StringKey, unknown> = {
   'detail.notAProbability':
     'Ocjena vidljivosti, a ne vjerovatnoća da ćeš nešto vidjeti.',
   'detail.imageNote': 'Teleskopska fotografija, ne prizor kroz sočivo.',
+  'detail.distance': 'Udaljenost',
+  'detail.lightLeft': 'Svjetlost je krenula prije',
+  'detail.dragRotate': 'Prevuci da zavrtiš',
   'weather.unavailable': 'Vrijeme nedostupno',
   'weather.checking': 'Provjeravam nebo…',
   'confidence.high': 'Visoka pouzdanost',

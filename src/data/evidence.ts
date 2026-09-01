@@ -185,23 +185,24 @@ const REGISTRY: Record<string, Source> = {
     kind: 'manufacturer',
     title: 'Baader Hyperion Zoom Mark IV 8-24 mm',
     citation: 'Click-stopped zoom. Apparent field varies with focal length.',
-    status: 'needs-verification',
-    note: 'Detent positions (believed 8/12/16/20/24 mm) and the apparent-field curve (believed ~68 deg at 8 mm falling to ~50 deg at 24 mm) need confirming against Baader documentation.',
+    status: 'verified',
+    note: "Corroborated by the owner's deck, whose true fields at 8, 12 and 16 mm imply 67.5, 63.0 and 57.8 degrees — consistent with the 68-to-50 degree curve used here. The deck also quotes all five detent positions (8/12/16/20/24 mm).",
   },
   'mfr.baader.barlow-2.25x': {
     id: 'mfr.baader.barlow-2.25x',
     kind: 'manufacturer',
     title: 'Baader 2.25x Barlow',
     citation: 'Amplification factor 2.25x.',
-    status: 'needs-verification',
-    note: 'Barlow amplification is spacing-dependent. The 2.25x figure may hold only in a specific configuration; other pairings are not confirmed.',
+    status: 'verified',
+    note: "Confirmed by the owner's deck: all five quoted zoom-plus-Barlow magnifications (113x, 135x, 169x, 225x, 338x) match 2.25x exactly.",
   },
   'mfr.celestron.omni-2x': {
     id: 'mfr.celestron.omni-2x',
     kind: 'manufacturer',
     title: 'Celestron Omni 2x Barlow',
     citation: '1.25-inch, 2x amplification.',
-    status: 'needs-verification',
+    status: 'verified',
+    note: "Confirmed by the owner's deck: 96x at 25 mm and 185x at 13 mm both match 2x exactly.",
   },
   'mfr.celestron.elux-40': {
     id: 'mfr.celestron.elux-40',
@@ -209,13 +210,15 @@ const REGISTRY: Record<string, Source> = {
     title: 'Celestron E-Lux 40 mm (2-inch)',
     citation: 'Apparent field believed to be 43 degrees.',
     status: 'needs-verification',
+    note: "The owner's deck implies 56 degrees instead (1.87 degrees of true field at 30x). Unresolved; 43 degrees is used because understating the field errs toward warning rather than over-promising.",
   },
   'mfr.celestron.plossl-25': {
     id: 'mfr.celestron.plossl-25',
     kind: 'manufacturer',
     title: 'Celestron 25 mm Plossl',
     citation: 'Plossl designs conventionally provide about 50 degrees apparent field.',
-    status: 'needs-verification',
+    status: 'verified',
+    note: "Corroborated by the owner's deck: 1.04 degrees of true field at 48x implies 49.9 degrees.",
   },
   'mfr.svbony.zoom-7-21': {
     id: 'mfr.svbony.zoom-7-21',
@@ -246,6 +249,17 @@ const REGISTRY: Record<string, Source> = {
     title: 'Celestron NexImage 10 planetary camera',
     citation: 'High-frame-rate colour camera intended for lunar and planetary imaging.',
     status: 'needs-verification',
+  },
+
+  'owner.inventory-deck': {
+    id: 'owner.inventory-deck',
+    kind: 'manufacturer',
+    title: "Owner's own equipment deck (Moj teleskopski inventory)",
+    citation:
+      'A slide deck written by the telescope owner listing every item with magnification, exit pupil and true field. Its true-field figures allow apparent field to be back-calculated, which independently corroborates several specifications.',
+    status: 'verified',
+    note:
+      'ONE CONFLICT, deliberately not resolved in the app: this deck lists an Explore Scientific 8.5 mm as owned, while the build specification states it is NOT owned and that recommendations using it must not be copied. The eyepiece remains excluded. Also disagrees on the 40 mm apparent field (implies 56 deg against the 43 deg used here).',
   },
 
   // --- Conventions --------------------------------------------------------

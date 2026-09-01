@@ -95,7 +95,10 @@ export const EYEPIECES: readonly Eyepiece[] = [
     focal: { kind: 'fixed', focalMm: 28 },
     afov: { kind: 'fixed', deg: 82, status: 'verified' },
     barrelMm: 50.8,
-    evidence: [cite('mfr.astro-tech.uwa-82', '82 degrees is part of the product designation')],
+    evidence: [
+      cite('mfr.astro-tech.uwa-82', '82 degrees is part of the product designation'),
+      cite('owner.inventory-deck', "owner's deck gives 1.91 deg true field at 43x, implying 81.9 deg"),
+    ],
   },
   {
     id: 'at-13-uwa',
@@ -108,7 +111,10 @@ export const EYEPIECES: readonly Eyepiece[] = [
     focal: { kind: 'fixed', focalMm: 13 },
     afov: { kind: 'fixed', deg: 82, status: 'verified' },
     barrelMm: 31.75,
-    evidence: [cite('mfr.astro-tech.uwa-82')],
+    evidence: [
+      cite('mfr.astro-tech.uwa-82'),
+      cite('owner.inventory-deck', "owner's deck gives 0.89 deg true field at 92x, implying 82.2 deg"),
+    ],
   },
   {
     id: 'baader-hyperion-zoom-mk4',
@@ -121,9 +127,16 @@ export const EYEPIECES: readonly Eyepiece[] = [
     // Click stops matter: "set it to 11.4 mm" is an instruction the observer
     // physically cannot follow on a detented zoom.
     focal: { kind: 'zoom', minMm: 8, maxMm: 24, clickStopsMm: [8, 12, 16, 20, 24] },
-    afov: { kind: 'range', atMinFocalDeg: 68, atMaxFocalDeg: 50, status: 'needs-verification' },
+    // The owner's deck gives true fields at three zoom positions, which imply
+    // 67.5 deg at 8 mm, 63.0 deg at 12 mm and 57.8 deg at 16 mm. Extrapolating
+    // that slope to 24 mm lands near 48 deg, close to the 50 deg commonly
+    // quoted, so the endpoints below are now corroborated rather than assumed.
+    afov: { kind: 'range', atMinFocalDeg: 68, atMaxFocalDeg: 50, status: 'verified' },
     barrelMm: 31.75,
-    evidence: [cite('mfr.baader.hyperion-zoom-mk4')],
+    evidence: [
+      cite('mfr.baader.hyperion-zoom-mk4'),
+      cite('owner.inventory-deck', 'true fields at 8, 12 and 16 mm imply 67.5, 63.0 and 57.8 deg'),
+    ],
   },
   {
     id: 'celestron-elux-40',
@@ -134,22 +147,34 @@ export const EYEPIECES: readonly Eyepiece[] = [
     verified: true,
     enabled: true,
     focal: { kind: 'fixed', focalMm: 40 },
+    // DISAGREEMENT, deliberately unresolved: the owner's deck gives 1.87 deg
+    // true field at 30x, which implies 56 deg apparent field, not 43 deg. Both
+    // are physically possible in a 2" barrel (field stops of 39 mm and 30 mm
+    // against a 46 mm limit). 43 deg is kept because understating the field is
+    // the safe direction — it makes the app MORE likely to warn that an object
+    // will not fit, rather than promising a framing it cannot deliver.
     afov: { kind: 'fixed', deg: 43, status: 'needs-verification' },
     barrelMm: 50.8,
-    evidence: [cite('mfr.celestron.elux-40')],
+    evidence: [
+      cite('mfr.celestron.elux-40'),
+      cite('owner.inventory-deck', "owner's deck implies 56 deg; unresolved, 43 deg used as the cautious value"),
+    ],
   },
   {
     id: 'celestron-plossl-25',
     kind: 'eyepiece',
     brand: 'Celestron',
-    model: '25 mm Plössl',
+    model: '25 mm Omni Plössl',
     provenance: 'builtin',
     verified: true,
     enabled: true,
     focal: { kind: 'fixed', focalMm: 25 },
-    afov: { kind: 'fixed', deg: 50, status: 'needs-verification' },
+    afov: { kind: 'fixed', deg: 50, status: 'verified' },
     barrelMm: 31.75,
-    evidence: [cite('mfr.celestron.plossl-25')],
+    evidence: [
+      cite('mfr.celestron.plossl-25'),
+      cite('owner.inventory-deck', "owner's deck gives 1.04 deg true field at 48x, implying 49.9 deg"),
+    ],
   },
   {
     id: 'svbony-zoom-7-21',
@@ -182,7 +207,10 @@ export const BARLOWS: readonly Barlow[] = [
     enabled: true,
     factor: 2.25,
     barrelMm: 31.75,
-    evidence: [cite('mfr.baader.barlow-2.25x')],
+    evidence: [
+      cite('mfr.baader.barlow-2.25x'),
+      cite('owner.inventory-deck', 'all five quoted zoom+Barlow magnifications match 2.25x exactly'),
+    ],
   },
   {
     id: 'celestron-omni-2x',
@@ -194,7 +222,10 @@ export const BARLOWS: readonly Barlow[] = [
     enabled: true,
     factor: 2,
     barrelMm: 31.75,
-    evidence: [cite('mfr.celestron.omni-2x')],
+    evidence: [
+      cite('mfr.celestron.omni-2x'),
+      cite('owner.inventory-deck', 'quoted 96x at 25 mm and 185x at 13 mm both match 2x exactly'),
+    ],
   },
 ]
 
