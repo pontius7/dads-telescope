@@ -10,10 +10,24 @@ that needs your Cloudflare account, which cannot be done from here.
 ## One-time setup
 
 1. Go to **https://dash.cloudflare.com** and sign in (or create a free account).
-2. **Workers & Pages → Create → Pages → Connect to Git**.
-3. Authorise Cloudflare to read GitHub. When it asks which repositories, you can
+2. On the account home screen, click **Create app** under "Ship something new".
+   (Cloudflare redesigned this dashboard; the older path was
+   *Workers & Pages → Create → Pages*. Both land in the same place, and
+   **Compute** in the left sidebar also reaches it.)
+3. Choose **Import a repository** / **Connect to Git**. The new dashboard leads
+   with Workers, so Pages may sit behind a secondary tab.
+4. Authorise Cloudflare to read GitHub. When it asks which repositories, you can
    grant access to **only** `pontius7/dads-telescope` rather than all repos.
-4. Pick the `dads-telescope` repository, then set:
+
+   > **Watch the account.** This machine is signed in to GitHub as **two**
+   > accounts, `pontius7` and `nikozz7`, and the repo belongs to **`pontius7`**.
+   > The Cloudflare account is a third identity (`Nikocevic7@icloud…`). If the
+   > GitHub authorisation runs as `nikozz7`, the repository list comes back
+   > empty and it looks as though the repo does not exist. Use the
+   > **Add account** / **Configure GitHub App** link in the repo picker to add
+   > `pontius7`.
+
+5. Pick the `dads-telescope` repository, then set:
 
    | Setting | Value |
    |---|---|
@@ -25,7 +39,7 @@ that needs your Cloudflare account, which cannot be done from here.
    Node version is pinned to 22 by the `.node-version` file, so there is nothing
    to set for it.
 
-5. **Save and Deploy.** The first build takes a couple of minutes.
+6. **Save and Deploy.** The first build takes a couple of minutes.
 
 You get a URL like `https://dads-telescope.pages.dev`.
 
