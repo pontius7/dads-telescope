@@ -60,13 +60,33 @@ Every `git push` to `main` redeploys automatically. Nothing else to run.
 
 ## What is already configured
 
-- `public/_redirects` — `/* /index.html 200`, so any path serves the app instead
-  of a 404.
 - `.node-version` — pins Node 22 to match local.
 - `vite.config.ts` — PWA manifest, icons, and service worker via
   `vite-plugin-pwa`. Weather responses are deliberately **never** precached.
 - `.gitignore` — keeps `node_modules/`, `dist/` and build artefacts out of the
   repo.
+
+## Do not add a `_redirects` file
+
+The usual SPA fallback for Cloudflare **Pages** is:
+
+```
+/*    /index.html   200
+```
+
+That rule **breaks the build** here. This project deploys as a **Worker with
+static assets**, and that runtime already strips `/index.html` down to `/`. The
+rule therefore rewrites to `/index.html`, the runtime strips it back to `/`, and
+the rule fires again — Cloudflare detects the loop and rejects the deploy with
+`Invalid _redirects configuration … Infinite loop detected [code: 100324]`,
+*after* the build and asset upload have both succeeded.
+
+It is not needed regardless: this app has no client-side router. Every screen is
+React state, so `/` is the only path that exists.
+
+If deep links are ever added, the Workers-native mechanism is
+`assets.not_found_handling: "single-page-application"` in a `wrangler.jsonc` —
+not a `_redirects` file.
 
 ## If you would rather not use Cloudflare
 
