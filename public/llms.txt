@@ -1,0 +1,23 @@
+# Dad's Telescope
+
+> An observing assistant for one specific telescope: a Celestron StarSense
+> Explorer 8" Dobsonian (203 mm, 1200 mm, f/6). It reports what is worth
+> observing tonight from a given location, and exactly which eyepiece,
+> magnification and filter to use.
+
+The number shown is an Observability Score (0-100), not a probability of seeing
+an object. Seeing and transparency are never reported, because no free data
+source supplies them; missing weather lowers confidence rather than being
+replaced by an estimate.
+
+## Data sources
+
+- [Astronomy Engine](https://github.com/cosinekitty/astronomy): MIT-licensed ephemeris used for all positions, rise/set times, twilight and Moon calculations.
+- [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/): independent reference; positions are validated against it to within one arcminute.
+- [OpenNGC](https://github.com/mattiaverga/OpenNGC): CC-BY-SA-4.0 deep-sky catalogue supplying coordinates, magnitudes, angular sizes and surface brightness.
+- [Open-Meteo](https://open-meteo.com/): CC-BY-4.0 hourly forecast, the primary weather source.
+- [US National Weather Service API](https://www.weather.gov/documentation/services-web-api): public-domain fallback weather source.
+
+## Optional
+
+- [Kasten & Young airmass](https://doi.org/10.1364/AO.28.004735): the 1989 formula used for atmospheric extinction.

@@ -3,9 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      No `user-scalable=no` / `maximum-scale`: blocking zoom breaks screen
+      magnification for low-vision users. The 3D canvas already sets
+      `touch-action: none`, so pinching the sky zooms the sky rather than the
+      document, and the overlay text stays magnifiable.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      name="description"
+      content="What is worth observing tonight through an 8-inch Dobsonian from your location, and exactly which eyepiece, magnification and filter to use."
     />
     <meta name="theme-color" content="#05070c" />
     <meta name="mobile-web-app-capable" content="yes" />
