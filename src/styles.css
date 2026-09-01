@@ -796,3 +796,33 @@ body {
    look tappable when tapping it would do nothing. */
 .row:disabled { opacity: 0.55; cursor: default; }
 .row:disabled:hover { background: none; }
+
+/* The red-mode switch, on the main screen and in thumb reach above the zoom
+   pair. 48px because it is used in the dark, in gloves, by someone who should
+   not have to aim. */
+.nightbtn {
+  position: fixed;
+  right: calc(var(--safe-r) + 16px);
+  bottom: calc(var(--safe-b) + 190px);
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(8, 11, 18, 0.8);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  z-index: 15;
+  transition: color 220ms var(--ease), border-color 220ms var(--ease);
+}
+.nightbtn:hover { background: rgba(255, 255, 255, 0.06); }
+.nightbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
+.nightbtn[aria-pressed='true'] {
+  color: var(--poor);
+  border-color: color-mix(in srgb, var(--poor) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nightbtn { transition: none; }
+}

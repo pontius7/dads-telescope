@@ -217,6 +217,29 @@ export default function App() {
         />
       )}
 
+      {/* Red mode belongs on the main screen, not two taps into a menu: it is
+          flipped repeatedly through an evening, and once it is ON the menu is
+          the hardest thing on the phone to read your way back into. */}
+      <button
+        className="nightbtn"
+        aria-pressed={night.nightVision}
+        aria-label={t('night.red')}
+        title={t('night.red')}
+        onClick={() => changeNight({ ...night, nightVision: !night.nightVision })}
+      >
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+          {/* A crescent: the same mark whether on or off, so the button never
+              changes meaning — only the fill says which state it is in. */}
+          <path
+            d="M14.6 3.2a8 8 0 1 0 4.2 10.4A6.4 6.4 0 0 1 14.6 3.2Z"
+            fill={night.nightVision ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
       <div className="zoom">
         <button aria-label="Zoom in" onClick={() => setZoomNudge((z) => z - 6)}>−</button>
         <button aria-label="Zoom out" onClick={() => setZoomNudge((z) => z + 6)}>+</button>

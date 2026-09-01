@@ -7,6 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registration is done by `src/updates.ts` instead of the injected
+      // snippet, which only registered the worker and never asked it to look
+      // for a new one.
+      injectRegister: null,
       includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: "Dad's Telescope",
