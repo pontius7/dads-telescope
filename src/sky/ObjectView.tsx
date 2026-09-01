@@ -19,23 +19,10 @@ import * as THREE from 'three'
 import { Body, Illumination, MakeTime } from 'astronomy-engine'
 import type { Target } from '../domain/targets'
 import { imageFor } from '../data/imagery'
+// Shared with the sky marker, so the Moon on this card and the Moon overhead
+// are the same body with the same tilt.
+import { AXIAL_TILT, BODY_TEXTURES as TEXTURES } from './bodies'
 
-const TEXTURES: Record<string, string> = {
-  moon: '/textures/moon.jpg',
-  mars: '/textures/mars.jpg',
-  jupiter: '/textures/jupiter.jpg',
-  saturn: '/textures/saturn.jpg',
-  venus: '/textures/venus.jpg',
-  mercury: '/textures/mercury.jpg',
-  uranus: '/textures/uranus.jpg',
-  neptune: '/textures/neptune.jpg',
-}
-
-/** Axial tilt in degrees. Real values — Uranus really is on its side. */
-const AXIAL_TILT: Record<string, number> = {
-  moon: 6.7, mercury: 0.03, venus: 177.4, mars: 25.2,
-  jupiter: 3.1, saturn: 26.7, uranus: 97.8, neptune: 28.3,
-}
 
 function Globe({
   targetId, phaseAngleDeg, spin,

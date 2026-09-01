@@ -9,13 +9,21 @@
  *
  * If the device cannot report orientation, the control is hidden rather than
  * offered and then failing.
+ *
+ * This hook does no astronomy. It publishes the raw pose — all three angles
+ * plus the screen's own rotation — and lets `domain/pointing` work out where
+ * that is looking. It used to do the conversion here, with two of the three
+ * angles, and got the answer wrong wherever the phone was rolled or aimed near
+ * the zenith.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { DevicePose } from './domain/pointing'
 
 export type OrientationState = 'unsupported' | 'idle' | 'granted' | 'denied'
 
 interface IOSDeviceOrientationEvent extends DeviceOrientationEvent {
   webkitCompassHeading?: number
+  webkitCompassAccuracy?: number
 }
 type PermissionCapable = {
   requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
@@ -25,31 +33,50 @@ export function isOrientationSupported(): boolean {
   return typeof window !== 'undefined' && 'DeviceOrientationEvent' in window
 }
 
+/** The screen's own rotation, which turns the picture but never the telescope. */
+function screenAngle(): number {
+  if (typeof window === 'undefined') return 0
+  return window.screen?.orientation?.angle ?? 0
+}
+
 export function useOrientation() {
   const [state, setState] = useState<OrientationState>(() =>
     isOrientationSupported() ? 'idle' : 'unsupported',
   )
   // Written by the event, read by the render loop — a ref avoids re-rendering
   // React 60 times a second for a value only the 3D camera consumes.
-  const heading = useRef<{ azDeg: number; altDeg: number } | null>(null)
+  const pose = useRef<DevicePose | null>(null)
+  /**
+   * How far the compass may be out, in degrees. iOS reports this directly and
+   * uses a NEGATIVE value to mean "not calibrated at all". Null means the
+   * platform never said, which is not the same as saying it is fine.
+   */
+  const accuracy = useRef<number | null>(null)
 
   const handler = useCallback((e: DeviceOrientationEvent) => {
     const ev = e as IOSDeviceOrientationEvent
 
-    // Safari gives a true-north compass heading directly. Elsewhere, `alpha`
-    // is relative to an arbitrary starting orientation unless `absolute` is
-    // set, so the view can be rotated but is not guaranteed north-aligned.
+    // Safari gives a true compass heading directly, and it is the only value
+    // here that is tied to north. Elsewhere `alpha` is relative to an
+    // arbitrary starting orientation unless `absolute` is set, so the view can
+    // be turned but is not guaranteed to be north-aligned.
     const compass = ev.webkitCompassHeading
-    const alpha = e.alpha ?? 0
-    const azDeg = compass !== undefined ? compass : (360 - alpha) % 360
+    const alphaDeg = compass !== undefined ? 360 - compass : (e.alpha ?? 0)
 
-    // beta is front-to-back tilt: 0 = flat on a table, 90 = held upright.
-    // Held upright and pointed at the horizon is altitude 0; pointing straight
-    // up is altitude 90.
-    const beta = e.beta ?? 0
-    const altDeg = Math.max(-20, Math.min(89, beta - 90))
+    pose.current = {
+      alphaDeg,
+      betaDeg: e.beta ?? 0,
+      gammaDeg: e.gamma ?? 0,
+      screenAngleDeg: screenAngle(),
+    }
 
-    heading.current = { azDeg, altDeg }
+    if (ev.webkitCompassAccuracy !== undefined) {
+      accuracy.current = ev.webkitCompassAccuracy
+    } else if (compass === undefined && !e.absolute) {
+      // No compass and no absolute frame: the heading is not referenced to
+      // north at all. Saying so is better than drawing a confident arrow.
+      accuracy.current = -1
+    }
   }, [])
 
   const start = useCallback(async () => {
@@ -67,6 +94,10 @@ export function useOrientation() {
           return
         }
       }
+      // `deviceorientationabsolute` is north-referenced where it exists, which
+      // is what Android needs; Safari has none and answers the plain event
+      // with a compass heading attached.
+      window.addEventListener('deviceorientationabsolute', handler, true)
       window.addEventListener('deviceorientation', handler, true)
       setState('granted')
     } catch {
@@ -75,12 +106,20 @@ export function useOrientation() {
   }, [handler])
 
   const stop = useCallback(() => {
+    window.removeEventListener('deviceorientationabsolute', handler, true)
     window.removeEventListener('deviceorientation', handler, true)
-    heading.current = null
+    pose.current = null
+    accuracy.current = null
     setState(isOrientationSupported() ? 'idle' : 'unsupported')
   }, [handler])
 
-  useEffect(() => () => window.removeEventListener('deviceorientation', handler, true), [handler])
+  useEffect(
+    () => () => {
+      window.removeEventListener('deviceorientationabsolute', handler, true)
+      window.removeEventListener('deviceorientation', handler, true)
+    },
+    [handler],
+  )
 
-  return { state, heading, start, stop }
+  return { state, pose, accuracy, start, stop }
 }

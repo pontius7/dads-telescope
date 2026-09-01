@@ -36,7 +36,10 @@ export default defineConfig({
         navigateFallback: '/index.html',
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/images-assets\.nasa\.gov\/.*/i,
+            // Both hosts, because 46 of the 59 verified images live on
+            // wikimedia and only 13 on NASA. Caching NASA alone left most of
+            // the detail-card photographs failing offline.
+            urlPattern: /^https:\/\/(images-assets\.nasa\.gov|upload\.wikimedia\.org|thumb\.wikimedia\.org)\/.*/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'astro-imagery',

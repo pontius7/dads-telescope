@@ -22,6 +22,7 @@ import {
 import { TELESCOPE, magnification, exitPupilMm } from './domain/optics'
 import { describeFreshness } from './services/weather'
 import { useOrientation } from './useOrientation'
+import { PointingHUD } from './PointingHUD'
 import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey } from './i18n'
 
 type Panel =
@@ -65,10 +66,14 @@ export default function App() {
     [sky.tonight, sky.notTonight, selectedId],
   )
 
-  const flyTo = useMemo(() => {
-    if (!selected || sensorOn) return null
-    return positionOf(selected, when, sky.loc)
-  }, [selected, when, sky.loc, sensorOn])
+  // Where the chosen target is right now. In gesture mode the camera flies
+  // there; while pointing, the camera belongs to the phone and this becomes
+  // the thing being guided TO rather than jumped to.
+  const guideTo = useMemo(
+    () => (selected ? positionOf(selected, when, sky.loc) : null),
+    [selected, when, sky.loc],
+  )
+  const flyTo = sensorOn ? null : guideTo
 
   const initialView = useMemo(() => {
     const best = sky.markers[0]
@@ -78,9 +83,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sky.markers.length > 0])
 
+  // Pointing at the sky means looking at the SKY. A full-height card over it
+  // hides the reticle and the trail, which are the whole point, so the card
+  // drops to its header and the user can pull it back up.
+  const [detailOpen, setDetailOpen] = useState(true)
+  useEffect(() => {
+    if (sensorOn) setDetailOpen(false)
+  }, [sensorOn])
+
   const select = (id: string | null) => {
     setSelectedId(id)
     setPanel(id ? 'detail' : 'hot')
+    setDetailOpen(!sensorOn)
   }
   const backToSky = () => {
     setSelectedId(null)
@@ -108,7 +122,10 @@ export default function App() {
           zoomNudge={zoomNudge}
           initialView={initialView}
           explore={explore}
-          orientation={sensorOn ? orient.heading : null}
+          pose={sensorOn ? orient.pose : null}
+          accuracy={orient.accuracy}
+          guideTo={sensorOn ? guideTo : null}
+          guideName={selected ? displayName(selected) : null}
         />
       </Suspense>
 
@@ -180,9 +197,18 @@ export default function App() {
       )}
       {orient.state === 'denied' && <p className="toast">{t('sensor.denied')}</p>}
 
+      <PointingHUD active={sensorOn} />
+
       {panel === 'hot' && <HotSheet sky={sky} onSelect={select} onOpen={setPanel} />}
       {panel === 'detail' && selected && (
-        <DetailSheet s={selected} sky={sky} when={when} onBack={backToSky} />
+        <DetailSheet
+          s={selected}
+          sky={sky}
+          when={when}
+          onBack={backToSky}
+          collapsed={!detailOpen}
+          onToggle={() => setDetailOpen((v) => !v)}
+        />
       )}
       {panel === 'notTonight' && <NotTonightSheet sky={sky} onBack={() => setPanel('hot')} />}
       {panel === 'menu' && <MenuSheet onGo={setPanel} onBack={backToSky} />}
@@ -274,7 +300,9 @@ function Sheet({
         aria-label={`${collapsed ? 'Open' : 'Close'} ${title}`}
       >
         <span className="label">{title}</span>
-        <span className="label" aria-hidden="true">{onBack ? '✕' : collapsed ? '↑' : '↓'}</span>
+        <span className="label" aria-hidden="true">
+          {onToggle ? (collapsed ? '↑' : '↓') : onBack ? '✕' : collapsed ? '↑' : '↓'}
+        </span>
       </button>
       <hr className="hairline" />
       <div className="sheet-body">
@@ -354,14 +382,23 @@ function NotTonightSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
   )
 }
 
-function DetailSheet({ s, sky, when, onBack }: { s: ScoredTarget; sky: Sky; when: Date; onBack: () => void }) {
+function DetailSheet({
+  s, sky, when, onBack, collapsed, onToggle,
+}: {
+  s: ScoredTarget
+  sky: Sky
+  when: Date
+  onBack: () => void
+  collapsed?: boolean
+  onToggle?: () => void
+}) {
   const setup = useMemo(() => setupFor(s, sky.inventory), [s, sky.inventory])
   const o = s.observability
   const img = imageFor(s.target.id)
   const dist = useMemo(() => distanceTo(s.target, when), [s.target, when])
 
   return (
-    <Sheet title={s.target.name} onBack={onBack}>
+    <Sheet title={s.target.name} onBack={onBack} collapsed={collapsed} onToggle={onToggle}>
       <h2 className="detail-title">{displayName(s)}</h2>
       <p className="detail-sub">
         {kindLabel(s)}

@@ -541,3 +541,82 @@ body {
 .sheet-body::-webkit-scrollbar { width: 6px; }
 .sheet-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.13); border-radius: 3px; }
 .sheet-body::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------------------------------------------------------------------------
+   Point at Sky — the instruction over the reticle.
+
+   Sized for someone standing in a dark field without reading glasses: the turn
+   is the biggest type in the app, the numbers are tabular so they do not jitter
+   as they count down, and the state is carried by WORDS as well as colour.
+   --------------------------------------------------------------------------- */
+.hud {
+  position: fixed;
+  top: calc(var(--safe-t) + 74px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(92vw, 520px);
+  text-align: center;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-name {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-height: 14px;
+  transition: color 260ms var(--ease);
+}
+
+.hud-turn {
+  font-size: clamp(28px, 7vw, 40px);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  margin-top: 4px;
+  color: var(--ink);
+  text-shadow: 0 2px 22px rgba(0, 0, 0, 0.85);
+  transition: color 300ms var(--ease);
+}
+
+.hud-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
+}
+
+.hud-warn {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fair);
+  background: rgba(10, 14, 22, 0.82);
+  border: 1px solid rgba(232, 196, 104, 0.28);
+  border-radius: 10px;
+  padding: 7px 12px;
+  display: inline-block;
+}
+
+/* The state is legible without colour, but colour makes it readable at a
+   glance from arm's length, which is how it is actually used. */
+.hud[data-phase='searching'] .hud-turn { color: var(--muted); font-size: clamp(20px, 5vw, 26px); }
+.hud[data-phase='closing'] .hud-turn { color: var(--fair); }
+.hud[data-phase='locked'] .hud-turn {
+  color: var(--good);
+  animation: hud-lock 520ms var(--ease);
+}
+.hud[data-phase='locked'] .hud-name { color: var(--good); }
+
+/* One confirmation, not a loop: it marks the moment of arrival and stops. */
+@keyframes hud-lock {
+  0% { transform: scale(0.93); opacity: 0.5; }
+  60% { transform: scale(1.04); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud[data-phase='locked'] .hud-turn { animation: none; }
+}

@@ -5,28 +5,36 @@
  * location and time. Nothing is placed for decoration — if an object is below
  * the horizon it is simply not in the scene.
  */
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { Suspense, useMemo, useRef, useEffect, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import {
   fixedHorizontal, bodyHorizontal, makeObserver, type GeoLocation,
 } from '../domain/ephemeris'
-import { MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
+import { horizonToWorld } from '../domain/frame'
+import { deviceToAim, type DevicePose } from '../domain/pointing'
+import { Guidance } from './Guidance'
+import { Body, Illumination, MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
+import { badgeTexture, discTexture, ringTexture } from './markerTexture'
+import { hasThumb, loadThumb, peekThumb } from './thumbs'
+import { hasBodyTexture } from './bodies'
+import { SkyGlobe } from './SkyGlobe'
 import { buildStarField, buildMilkyWay, bvToRgb, magnitudeToSize } from './starfield'
 import { CONSTELLATIONS, figureStarVector } from './constellations'
 import type { ScoredTarget } from '../useSky'
 
-/** Place a point on the celestial sphere from altitude/azimuth. */
+/**
+ * Place a point on the celestial sphere from altitude/azimuth.
+ *
+ * The axes live in `domain/frame`, which is also what the star field, the
+ * Milky Way and the constellation figures are drawn in. This used to build its
+ * own vector with +X east, mirroring every marker, cardinal label, meteor and
+ * the camera itself across the meridian relative to the stars behind them.
+ */
 export function altAzToVec3(altDeg: number, azDeg: number, r = 100): THREE.Vector3 {
-  const alt = (altDeg * Math.PI) / 180
-  const az = (azDeg * Math.PI) / 180
-  // Azimuth is clockwise from north; +Z is north, +X is east, +Y is up.
-  return new THREE.Vector3(
-    r * Math.cos(alt) * Math.sin(az),
-    r * Math.sin(alt),
-    r * Math.cos(alt) * Math.cos(az),
-  )
+  const [x, y, z] = horizonToWorld(altDeg, azDeg, r)
+  return new THREE.Vector3(x, y, z)
 }
 
 /**
@@ -584,7 +592,21 @@ function useTextTexture(text: string): THREE.CanvasTexture {
   return tex
 }
 
-/** A score marker: the number inside a thin ring. */
+/**
+ * A target in the sky.
+ *
+ * Three treatments, and which one you get says something true about the object:
+ *
+ *   A LIT GLOBE for the Moon and the planets, turned to tonight's real phase.
+ *   These are the objects whose appearance actually changes night to night, and
+ *   we have their real surfaces, so drawing a sphere is not embellishment.
+ *
+ *   A PHOTOGRAPH for a deep-sky object with a verified image, feathered into
+ *   the star field and wearing its score on a badge.
+ *
+ *   A PLAIN RING otherwise. Not a placeholder — it means no verified
+ *   photograph of this object exists, and the app will not invent one.
+ */
 function Marker({
   target, loc, when, selected, onSelect, explore,
 }: {
@@ -595,31 +617,76 @@ function Marker({
   onSelect: (id: string) => void
   explore: boolean
 }) {
+  const t = target.target
+  const id = t.id
+  const score = Math.round(target.observability.finalScore)
+
   const pos = useMemo(() => {
-    const t = target.target
     const h =
       t.type === 'deep-sky'
         ? fixedHorizontal(t.raHoursJ2000, t.decDegJ2000, when, loc, 'normal')
         : bodyHorizontal(t.body, when, loc, 'normal')
     return { vec: altAzToVec3(h.altitudeDeg, h.azimuthDeg, 88), alt: h.altitudeDeg }
-  }, [target, loc, when])
+  }, [t, loc, when])
 
-  const tex = useMemo(
-    () => markerTexture(Math.round(target.observability.finalScore), selected),
-    [target.observability.finalScore, selected],
-  )
+  // The photograph arrives after the first frame. Until it does the target
+  // wears its ring, and swaps when the image is decoded.
+  const [thumb, setThumb] = useState<HTMLImageElement | null>(() => peekThumb(id))
+  useEffect(() => {
+    if (thumb || !hasThumb(id)) return
+    let live = true
+    void loadThumb(id).then((img) => {
+      if (live && img) setThumb(img)
+    })
+    return () => {
+      live = false
+    }
+  }, [id, thumb])
+
+  const isBody = t.type === 'solar-system' && hasBodyTexture(id)
+
+  const phaseAngleDeg = useMemo(() => {
+    if (t.type !== 'solar-system') return 0
+    try {
+      return Illumination(t.body as Body, MakeTime(when)).phase_angle
+    } catch {
+      return 0
+    }
+  }, [t, when])
+
+  const texture = useMemo(() => {
+    if (isBody) return badgeTexture(score, selected)
+    if (thumb) return discTexture(id, thumb, score, selected)
+    return ringTexture(score, selected)
+  }, [isBody, thumb, id, score, selected])
 
   // In Live mode a marker below the horizon is hidden — the object is not
   // there to look at. Explore mode shows it, dimmed, so you can see what is
   // coming up later.
   if (pos.alt < 2 && !explore) return null
 
+  // A photograph earns more room than a bare number, and a better opportunity
+  // earns more room than a worse one.
+  const size = isBody ? 5.6 : thumb ? 11 + (score / 100) * 4 : 7.4
+
   return (
     <AnimatedMarker
       position={pos.vec}
       selected={selected}
-      texture={tex}
-      onSelect={() => onSelect(target.target.id)}
+      texture={texture}
+      size={size}
+      onSelect={() => onSelect(id)}
+      globe={
+        isBody ? (
+          <Suspense fallback={null}>
+            <SkyGlobe
+              targetId={id}
+              phaseAngleDeg={phaseAngleDeg}
+              radius={(selected ? 4.4 : 3.5) * (id === 'saturn' ? 0.72 : 1)}
+            />
+          </Suspense>
+        ) : null
+      }
     />
   )
 }
@@ -631,78 +698,63 @@ function Marker({
  * something completely static reads as a screenshot rather than a live sky.
  */
 function AnimatedMarker({
-  position, selected, texture, onSelect,
+  position, selected, texture, size, onSelect, globe,
 }: {
   position: THREE.Vector3
   selected: boolean
   texture: THREE.CanvasTexture
+  size: number
   onSelect: () => void
+  globe: React.ReactNode
 }) {
   const ref = useRef<THREE.Sprite>(null)
+  const group = useRef<THREE.Group>(null)
   const born = useRef(0)
 
   useFrame((state, dt) => {
-    if (!ref.current) return
     born.current = Math.min(1, born.current + dt * 2.6)
     // Ease-out entry, so markers arrive rather than appear.
     const entry = 1 - Math.pow(1 - born.current, 3)
-    const t = state.clock.elapsedTime
+    const time = state.clock.elapsedTime
     const breathe = selected
-      ? 1 + Math.sin(t * 2.4) * 0.07
-      : 1 + Math.sin(t * 1.1 + position.x) * 0.025
-    const base = selected ? 11 : 8.5
-    const k = base * entry * breathe
-    ref.current.scale.set(k, k, 1)
-    const mat = ref.current.material as THREE.SpriteMaterial
-    mat.opacity = entry
+      ? 1 + Math.sin(time * 2.4) * 0.06
+      : 1 + Math.sin(time * 1.1 + position.x) * 0.022
+
+    if (ref.current) {
+      const k = size * entry * breathe
+      ref.current.scale.set(k, k, 1)
+      ;(ref.current.material as THREE.SpriteMaterial).opacity = entry
+    }
+    if (group.current) group.current.scale.setScalar(entry * breathe)
   })
 
   return (
-    <sprite
-      ref={ref}
-      position={[position.x, position.y, position.z]}
-      scale={[0.01, 0.01, 1]}
-      onClick={(e) => {
-        e.stopPropagation()
-        onSelect()
-      }}
-    >
-      <spriteMaterial map={texture} transparent depthTest={false} opacity={0} />
-    </sprite>
+    <group position={[position.x, position.y, position.z]}>
+      {globe && <group ref={group}>{globe}</group>}
+      <sprite
+        ref={ref}
+        scale={[0.01, 0.01, 1]}
+        // A globe carries its badge beside it rather than across its face:
+        // `center` shifts the sprite in screen space, so the badge stays put
+        // however the camera turns.
+        center={globe ? [-0.15, 1.1] : [0.5, 0.5]}
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect()
+        }}
+      >
+        <spriteMaterial
+          map={texture}
+          transparent
+          depthTest={false}
+          opacity={0}
+          // Photographs are objects, not light sources. Held under the bloom
+          // threshold they stay crisp instead of blooming into a smear.
+          color={globe ? '#ffffff' : '#d8dde6'}
+        />
+      </sprite>
+    </group>
   )
-}
-
-const markerCache = new Map<string, THREE.CanvasTexture>()
-function markerTexture(score: number, selected: boolean): THREE.CanvasTexture {
-  const key = `${score}-${selected}`
-  const hit = markerCache.get(key)
-  if (hit) return hit
-
-  const S = 128
-  const c = document.createElement('canvas')
-  c.width = c.height = S
-  const ctx = c.getContext('2d')!
-  // Colour reinforces; the NUMBER carries the meaning, so this stays readable
-  // for anyone who cannot separate these hues.
-  const colour = score >= 75 ? '#6ee7a8' : score >= 50 ? '#e8c468' : '#e8806b'
-
-  ctx.beginPath()
-  ctx.arc(S / 2, S / 2, 40, 0, Math.PI * 2)
-  ctx.strokeStyle = colour
-  ctx.globalAlpha = selected ? 1 : 0.75
-  ctx.lineWidth = selected ? 4 : 2.5
-  ctx.stroke()
-
-  ctx.globalAlpha = 1
-  ctx.fillStyle = '#e8ecf4'
-  ctx.font = '500 40px "Avenir Next", system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(String(score), S / 2, S / 2 + 2)
-
-  const tex = new THREE.CanvasTexture(c)
-  markerCache.set(key, tex)
-  return tex
 }
 
 /**
@@ -711,7 +763,7 @@ function markerTexture(score: number, selected: boolean): THREE.CanvasTexture {
  * the fly-to needs to interpolate the same state the gestures write.
  */
 function CameraRig({
-  flyTo, zoomNudge, initialView, explore, orientation, fovOut,
+  flyTo, zoomNudge, initialView, explore, pose, fovOut,
 }: {
   fovOut?: React.RefObject<number>
   flyTo: { altDeg: number; azDeg: number } | null
@@ -720,7 +772,7 @@ function CameraRig({
   /** Explore mode lets the view go below the horizon. */
   explore: boolean
   /** When set, the device's own orientation drives the camera. */
-  orientation: React.RefObject<{ azDeg: number; altDeg: number } | null> | null
+  pose: React.RefObject<DevicePose | null> | null
 }) {
   const { camera, gl } = useThree()
   // Open looking at the best target rather than an arbitrary bearing. Note the
@@ -730,6 +782,8 @@ function CameraRig({
     az: initialView?.azDeg ?? 180,
     alt: Math.min(70, Math.max(18, initialView?.altDeg ?? 40)),
     fov: 64,
+    /** Only the sensor writes this: the sky leans when the phone leans. */
+    roll: 0,
   })
   const target = useRef<{ az: number; alt: number } | null>(null)
   const drag = useRef<{ x: number; y: number } | null>(null)
@@ -806,14 +860,23 @@ function CameraRig({
     const s = state.current
 
     // Sensor mode overrides gestures entirely while active.
-    const sensor = orientation?.current
+    const sensor = pose?.current
     if (sensor) {
+      // The full three-angle conversion. Doing this here rather than in the
+      // hook keeps the sensor path and the gesture path writing the same
+      // az/alt state, so a fly-to and a hand movement cannot fight.
+      const aim = deviceToAim(sensor)
       // Light smoothing: raw orientation readings jitter enough to make the
       // sky visibly shake if applied directly.
       const k = 1 - Math.exp(-dt * 8)
-      s.az = wrap360(s.az + shortestAngle(s.az, sensor.azDeg) * k)
-      s.alt += (sensor.altDeg - s.alt) * k
+      s.az = wrap360(s.az + shortestAngle(s.az, aim.azDeg) * k)
+      s.alt += (aim.altDeg - s.alt) * k
+      s.roll += shortestAngle(s.roll, aim.rollDeg) * k
       target.current = null
+    } else if (s.roll !== 0) {
+      // Let the horizon settle back to level when pointing stops.
+      s.roll += (0 - s.roll) * (1 - Math.exp(-dt * 6))
+      if (Math.abs(s.roll) < 0.05) s.roll = 0
     }
 
     if (target.current) {
@@ -839,6 +902,10 @@ function CameraRig({
     const dir = altAzToVec3(s.alt, s.az, 1)
     camera.position.set(0, 0, 0)
     camera.lookAt(dir)
+    // `lookAt` always levels the horizon. Leaning the camera back by the
+    // phone's own roll is what makes the screen match the sky when the phone
+    // is held at an angle, instead of showing a level picture of a tilted view.
+    if (s.roll !== 0) camera.rotateZ((-s.roll * Math.PI) / 180)
     if (fovOut) fovOut.current = s.fov
     const cam = camera as THREE.PerspectiveCamera
     if (Math.abs(cam.fov - s.fov) > 0.01) {
@@ -852,7 +919,8 @@ function CameraRig({
 
 export function SkyScene({
   loc, when, targets, selectedId, onSelect, flyTo, zoomNudge, initialView,
-  explore = false, orientation = null, showFigures = true,
+  explore = false, pose = null, accuracy = null, guideTo = null, guideName = null,
+  showFigures = true,
 }: {
   loc: GeoLocation
   when: Date
@@ -863,7 +931,11 @@ export function SkyScene({
   zoomNudge: number
   initialView: { altDeg: number; azDeg: number } | null
   explore?: boolean
-  orientation?: React.RefObject<{ azDeg: number; altDeg: number } | null> | null
+  pose?: React.RefObject<DevicePose | null> | null
+  accuracy?: React.RefObject<number | null> | null
+  /** Where the chosen target is right now, for the guidance trail. */
+  guideTo?: { altDeg: number; azDeg: number } | null
+  guideName?: string | null
   showFigures?: boolean
 }) {
   const [dpr, setDpr] = useState(1.5)
@@ -913,9 +985,17 @@ export function SkyScene({
         zoomNudge={zoomNudge}
         initialView={initialView}
         explore={explore}
-        orientation={orientation}
+        pose={pose}
         fovOut={fovRef}
       />
+      {accuracy && (
+        <Guidance
+          target={guideTo}
+          targetName={guideName}
+          accuracy={accuracy}
+          active={pose !== null}
+        />
+      )}
     </Canvas>
   )
 }
