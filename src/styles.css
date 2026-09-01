@@ -99,6 +99,19 @@ body {
 }
 .topbar > * { pointer-events: auto; }
 
+/* The sky is no longer always black. A scrim keeps the top controls legible
+   against a bright afternoon without tinting the sky itself, and costs nothing
+   at night where it is invisible against the background. */
+.topbar::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--safe-t) - 8px) 0 auto 0;
+  height: 132px;
+  background: linear-gradient(to bottom, rgba(5, 7, 12, 0.62), rgba(5, 7, 12, 0));
+  pointer-events: none;
+  z-index: -1;
+}
+
 .place {
   background: none;
   border: 0;
@@ -648,3 +661,33 @@ body {
 /* No verified photograph: hold the space, show nothing. */
 .row-thumb-none { background: none; }
 .row .ring { margin-left: 12px; }
+
+/* One line, above the list: what the weather allows tonight. The dot carries
+   the verdict at a glance; the words carry it for anyone who cannot separate
+   these hues, which is the same rule the score markers follow. */
+.conditions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-body);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.conditions-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.conditions[data-sky='clear'] .conditions-dot { background: var(--good); }
+.conditions[data-sky='broken'] .conditions-dot { background: var(--fair); }
+.conditions[data-sky='mostly-cloudy'] .conditions-dot { background: var(--poor); }
+.conditions[data-sky='overcast'] .conditions-dot { background: var(--poor); }
+.conditions[data-sky='unknown'] .conditions-dot {
+  background: none;
+  border: 1px solid var(--faint);
+}

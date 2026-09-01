@@ -14,6 +14,7 @@ import {
 } from '../domain/ephemeris'
 import { horizonToWorld } from '../domain/frame'
 import { deviceToAim, type DevicePose } from '../domain/pointing'
+import { daylightPhase, skyPalette, starVisibility } from '../domain/daylight'
 import { Guidance } from './Guidance'
 import { Body, Illumination, MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
 import { badgeTexture, discTexture, ringTexture } from './markerTexture'
@@ -53,7 +54,7 @@ export function altAzToVec3(altDeg: number, azDeg: number, r = 100): THREE.Vecto
  * reads as a glowing star rather than a faceted ball, and 4000+ of them cost
  * one draw call instead of thousands of triangles.
  */
-function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: boolean }) {
+function Stars({ loc, when, explore, visible }: { loc: GeoLocation; when: Date; explore: boolean; visible: number }) {
   const seeds = useMemo(() => buildStarField(4200), [])
 
   const { positions, colors, sizes, twinkle, phase } = useMemo(() => {
@@ -104,7 +105,12 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
 
   // Drive the twinkle. One uniform update per frame, not a React re-render.
   useFrame((state) => {
-    if (matRef.current) matRef.current.uniforms.uTime!.value = state.clock.elapsedTime
+    if (!matRef.current) return
+    matRef.current.uniforms.uTime!.value = state.clock.elapsedTime
+    // Eased rather than set, so scrubbing the clock through sunset dissolves
+    // the star field instead of snapping it on.
+    const u = matRef.current.uniforms.uVisible!
+    u.value += (visible - u.value) * 0.08
   })
 
   return (
@@ -127,6 +133,7 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
           uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
           uScale: { value: 3.1 },
           uTime: { value: 0 },
+          uVisible: { value: visible },
         }}
         vertexShader={STAR_VERT}
         fragmentShader={STAR_FRAG}
@@ -166,12 +173,15 @@ const STAR_VERT = /* glsl */ `
 
 const STAR_FRAG = /* glsl */ `
   uniform sampler2D map;
+  uniform float uVisible;
   varying vec3 vColor;
   varying float vTw;
   void main() {
+    if (uVisible <= 0.001) discard;
     vec4 t = texture2D(map, gl_PointCoord);
     if (t.a < 0.01) discard;
-    gl_FragColor = vec4(vColor * vTw, 1.0) * t;
+    // Stars do not go out at dawn, they are washed out by a brighter sky.
+    gl_FragColor = vec4(vColor * vTw, 1.0) * t * uVisible;
   }
 `
 
@@ -205,7 +215,7 @@ function glowTexture(): THREE.CanvasTexture {
  * real galactic coordinates give organic structure with no UV stretching, and
  * the Great Rift emerges from simply not placing blobs in the dust lanes.
  */
-function MilkyWay({ loc, when }: { loc: GeoLocation; when: Date }) {
+function MilkyWay({ loc, when, visible }: { loc: GeoLocation; when: Date; visible: number }) {
   const seeds = useMemo(() => buildMilkyWay(1100), [])
   const texture = useMemo(() => cloudTexture(), [])
 
@@ -222,13 +232,16 @@ function MilkyWay({ loc, when }: { loc: GeoLocation; when: Date }) {
       siz.push(c.size)
       // Fades out near the horizon, where extinction genuinely kills it.
       const alt = Math.asin(Math.max(-1, Math.min(1, v.z)))
-      alp.push(c.alpha * Math.max(0, Math.min(1, Math.sin(alt) * 2.6)))
+      alp.push(c.alpha * Math.max(0, Math.min(1, Math.sin(alt) * 2.6)) * visible)
     }
     return {
       positions: new Float32Array(pos),
       sizes: new Float32Array(siz),
       alphas: new Float32Array(alp),
     }
+    // `visible` is itself a function of `when` and `loc` — the sun's altitude
+    // at that place and moment — so it can never change without one of them
+    // changing, and listing it would only rebuild the cloud twice.
   }, [seeds, loc, when])
 
   if (positions.length === 0) return null
@@ -365,7 +378,7 @@ function Horizon({ explore }: { explore: boolean }) {
  *              you have flown in on one object you are no longer navigating,
  *              and the lines would sit on top of the thing you came to see.
  */
-function Figures({ loc, when, fovRef }: { loc: GeoLocation; when: Date; fovRef: React.RefObject<number> }) {
+function Figures({ loc, when, fovRef, visible }: { loc: GeoLocation; when: Date; fovRef: React.RefObject<number>; visible: number }) {
   const lineRef = useRef<THREE.LineSegments>(null)
   const groupRef = useRef<THREE.Group>(null)
 
@@ -435,8 +448,8 @@ function Figures({ loc, when, fovRef }: { loc: GeoLocation; when: Date; fovRef: 
     // Full strength at a wide field, gone by about 32 degrees.
     const k = Math.max(0, Math.min(1, (fov - 32) / 22))
     const mat = lineRef.current?.material as THREE.LineBasicMaterial | undefined
-    if (mat) mat.opacity = 0.5 * k
-    if (groupRef.current) groupRef.current.visible = k > 0.05
+    if (mat) mat.opacity = 0.5 * k * visible
+    if (groupRef.current) groupRef.current.visible = k > 0.05 && visible > 0.05
   })
 
   return (
@@ -590,6 +603,71 @@ function useTextTexture(text: string): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c)
   textureCache.set(text, tex)
   return tex
+}
+
+
+/**
+ * The Sun.
+ *
+ * Drawn so you can see where it is — and, during the day, so the scene is not
+ * lying about what is overhead. It is deliberately NOT a target: it is absent
+ * from the catalogue, so it cannot be scored, recommended, listed or guided
+ * to. Tapping it produces a warning and nothing else.
+ *
+ * This is not squeamishness. The inventory contains no solar filter, and the
+ * app is only ever allowed to recommend gear that is owned and verified. With
+ * a 203 mm aperture and no filter, a moment at the eyepiece is permanent
+ * blindness, so the only honest answer the app can give about the Sun is "do
+ * not".
+ */
+function SunDisc({
+  loc, when, onWarn,
+}: {
+  loc: GeoLocation
+  when: Date
+  onWarn: () => void
+}) {
+  const pos = useMemo(() => {
+    const h = bodyHorizontal(Body.Sun, when, loc, 'normal')
+    return { vec: altAzToVec3(h.altitudeDeg, h.azimuthDeg, 86), alt: h.altitudeDeg }
+  }, [loc, when])
+
+  const texture = useMemo(() => {
+    const S = 256
+    const c = document.createElement('canvas')
+    c.width = c.height = S
+    const ctx = c.getContext('2d')!
+    const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2)
+    // A hard disc inside a wide glare, which is what the eye actually sees.
+    g.addColorStop(0.0, 'rgba(255,255,250,1)')
+    g.addColorStop(0.16, 'rgba(255,246,214,1)')
+    g.addColorStop(0.2, 'rgba(255,224,150,0.72)')
+    g.addColorStop(0.36, 'rgba(255,196,104,0.26)')
+    g.addColorStop(0.62, 'rgba(255,180,90,0.08)')
+    g.addColorStop(1.0, 'rgba(255,170,80,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, S, S)
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  }, [])
+
+  // Below the horizon there is nothing to draw; the glow it throws along the
+  // horizon is the palette's job, not a sprite's.
+  if (pos.alt < -3) return null
+
+  return (
+    <sprite
+      position={[pos.vec.x, pos.vec.y, pos.vec.z]}
+      scale={[26, 26, 1]}
+      onClick={(e) => {
+        e.stopPropagation()
+        onWarn()
+      }}
+    >
+      <spriteMaterial map={texture} transparent depthTest={false} blending={THREE.AdditiveBlending} />
+    </sprite>
+  )
 }
 
 /**
@@ -920,7 +998,7 @@ function CameraRig({
 export function SkyScene({
   loc, when, targets, selectedId, onSelect, flyTo, zoomNudge, initialView,
   explore = false, pose = null, accuracy = null, guideTo = null, guideName = null,
-  showFigures = true,
+  showFigures = true, onSunWarning,
 }: {
   loc: GeoLocation
   when: Date
@@ -937,9 +1015,30 @@ export function SkyScene({
   guideTo?: { altDeg: number; azDeg: number } | null
   guideName?: string | null
   showFigures?: boolean
+  /** Tapping the Sun warns; it is never a target. */
+  onSunWarning?: () => void
 }) {
   const [dpr, setDpr] = useState(1.5)
   const fovRef = useRef(64)
+
+  /**
+   * The sky is drawn for the time being shown. Rendering a black, star-filled
+   * night at four in the afternoon was the app claiming something plainly
+   * false about what is overhead.
+   */
+  const daylight = useMemo(() => {
+    const sunAltDeg = bodyHorizontal(Body.Sun, when, loc, 'normal').altitudeDeg
+    const palette = skyPalette(sunAltDeg)
+    const hex = (c: readonly [number, number, number]) =>
+      new THREE.Color(c[0], c[1], c[2]).getHexString()
+    return {
+      sunAltDeg,
+      phase: daylightPhase(sunAltDeg),
+      stars: starVisibility(sunAltDeg),
+      zenith: `#${hex(palette.zenith)}`,
+      horizon: `#${hex(palette.horizon)}`,
+    }
+  }, [when, loc])
   useEffect(() => {
     // Cap pixel ratio: a 3x Retina phone gains nothing visible here and pays
     // for it in frame time.
@@ -954,11 +1053,14 @@ export function SkyScene({
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onPointerMissed={() => onSelect(null)}
     >
-      <color attach="background" args={['#05070c']} />
-      <fog attach="fog" args={['#05070c', 120, 260]} />
-      <MilkyWay loc={loc} when={when} />
-      {showFigures && <Figures loc={loc} when={when} fovRef={fovRef} />}
-      <Stars loc={loc} when={when} explore={explore} />
+      <color attach="background" args={[daylight.zenith]} />
+      <fog attach="fog" args={[daylight.horizon, 120, 260]} />
+      {daylight.stars > 0.02 && <MilkyWay loc={loc} when={when} visible={daylight.stars} />}
+      {showFigures && daylight.stars > 0.15 && (
+        <Figures loc={loc} when={when} fovRef={fovRef} visible={daylight.stars} />
+      )}
+      <Stars loc={loc} when={when} explore={explore} visible={daylight.stars} />
+      <SunDisc loc={loc} when={when} onWarn={() => onSunWarning?.()} />
       <Horizon explore={explore} />
       <Cardinals />
       {targets.map((t) => (

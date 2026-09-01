@@ -24,12 +24,14 @@ import { describeFreshness } from './services/weather'
 import { useOrientation } from './useOrientation'
 import { PointingHUD } from './PointingHUD'
 import { hasThumb } from './sky/thumbs'
+import { SHOWPIECE_FLOOR } from './domain/featured'
 import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey } from './i18n'
 
 type Panel =
   | 'hot' | 'detail' | 'notTonight' | 'menu'
   | 'equipment' | 'sources' | 'location' | 'language'
-  | 'plan' | 'imaging' | 'tonight' | null
+  | 'plan' | 'imaging'
+  | 'sun' | 'tonight' | null
 
 /** Re-render everything when the language changes. */
 function useLang() {
@@ -127,6 +129,10 @@ export default function App() {
           accuracy={orient.accuracy}
           guideTo={sensorOn ? guideTo : null}
           guideName={selected ? displayName(selected) : null}
+          onSunWarning={() => {
+            setSelectedId(null)
+            setPanel('sun')
+          }}
         />
       </Suspense>
 
@@ -217,6 +223,7 @@ export default function App() {
       {panel === 'sources' && <SourcesSheet onBack={backToSky} />}
       {panel === 'language' && <LanguageSheet onBack={backToSky} />}
       {panel === 'imaging' && <ImagingSheet sky={sky} onBack={backToSky} />}
+      {panel === 'sun' && <SunSheet onBack={backToSky} />}
       {panel === 'tonight' && <TonightSheet sky={sky} when={when} onBack={backToSky} />}
       {panel === 'plan' && (
         <PlanSheet
@@ -363,12 +370,67 @@ function TargetRow({ s, onSelect }: { s: ScoredTarget; onSelect: (id: string) =>
 
 type Sky = ReturnType<typeof useSky>
 
+/**
+ * One line answering the question asked at the back door: is it worth taking
+ * the telescope out?
+ *
+ * Deliberately one line. The scores below already carry the detail, and a
+ * weather panel on top of them would be two ways of saying the same thing.
+ * When no cloud reading exists it says so — it never implies a clear night by
+ * staying quiet.
+ */
+
+/**
+ * The only thing the app will ever say about the Sun.
+ *
+ * There is no solar filter in the inventory, and the app may only recommend
+ * gear that is owned and verified — so there is no version of this screen that
+ * offers a way to observe it. It exists to say no, clearly, once.
+ */
+function SunSheet({ onBack }: { onBack: () => void }) {
+  return (
+    <Sheet title={t('sun.title')} onBack={onBack}>
+      <h2 className="detail-title warn">{t('sun.never')}</h2>
+      <p className="note">{t('sun.why')}</p>
+      <hr className="hairline sp" />
+      <p className="note">{t('sun.finder')}</p>
+      <p className="note">{t('sun.shown')}</p>
+    </Sheet>
+  )
+}
+
+function ConditionsLine({ sky }: { sky: Sky }) {
+  const c = sky.conditions
+  const label =
+    c.sky === 'clear' ? t('sky.clear')
+      : c.sky === 'broken' ? t('sky.broken')
+        : c.sky === 'mostly-cloudy' ? t('sky.mostlyCloudy')
+          : c.sky === 'overcast' ? t('sky.overcast')
+            : t('sky.unknown')
+
+  const worth = sky.tonight.filter((s) => s.observability.finalScore >= SHOWPIECE_FLOOR).length
+  const tail =
+    c.sky === 'unknown'
+      ? t('sky.noCloud')
+      : worth === 0
+        ? t('sky.worthNone')
+        : t('sky.worth', worth)
+
+  return (
+    <p className="conditions" data-sky={c.sky}>
+      <span className="conditions-dot" aria-hidden="true" />
+      <span>{label} — {tail}</span>
+    </p>
+  )
+}
+
 function HotSheet({ sky, onSelect, onOpen }: { sky: Sky; onSelect: (id: string) => void; onOpen: (p: Panel) => void }) {
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const list = showAll ? sky.tonight : sky.tonight.slice(0, 8)
   return (
     <Sheet title={t('hot.title')} collapsed={!open} onToggle={() => setOpen((v) => !v)}>
+      <ConditionsLine sky={sky} />
       {sky.tonight.length === 0 && <p className="note">{t('hot.empty')}</p>}
       {list.map((s) => <TargetRow key={s.target.id} s={s} onSelect={onSelect} />)}
       {!showAll && sky.tonight.length > 8 && (
@@ -778,6 +840,9 @@ function TonightSheet({ sky, when, onBack }: { sky: Sky; when: Date; onBack: () 
       {sun.darkHours !== null && (
         <p className="note">{t('tonight.darkFor')} <strong>{sun.darkHours} h</strong></p>
       )}
+      {/* The one place the Sun is discussed is the one place it must be
+          refused. Reachable deliberately, not only by tapping it in the sky. */}
+      <p className="note warn">{t('sun.never')} {t('sun.why')}</p>
 
       {/* ------------------------------------------------------------- Sky */}
       <div className="label mb sp">{t('tonight.sky')}</div>

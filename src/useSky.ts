@@ -17,6 +17,8 @@ import { DEEP_SKY_TARGETS } from './data/targets'
 import { loadInventory } from './data/inventoryStore'
 import type { Inventory } from './data/inventory'
 import { fetchWeather, type WeatherResult } from './services/weather'
+import { orderForPeople } from './domain/featured'
+import { assessConditions } from './domain/conditions'
 
 export interface ScoredTarget {
   target: Target
@@ -138,8 +140,32 @@ export function useSky(now: Date, overrideWindow?: ObservingWindow | null) {
     }
   }, [scored])
 
+  /**
+   * The list a person reads, ordered by what they want to look at rather than
+   * strictly by score. Only ever a reordering of what is already available —
+   * see `domain/featured`.
+   */
+  const tonight = useMemo(
+    () =>
+      orderForPeople(
+        ranked.tonight.map((s) => ({
+          targetId: s.target.id,
+          type: s.target.type,
+          popularity: s.target.popularity,
+          finalScore: s.observability.finalScore,
+          peakAltitudeDeg: s.observability.peakAltitudeDeg,
+          minutesUseful: s.observability.minutesUseful,
+          scored: s,
+        })),
+      ).map((r) => r.scored),
+    [ranked.tonight],
+  )
+
+  /** What the forecast allows tonight, in one verdict. */
+  const conditions = useMemo(() => assessConditions(samples, window_), [samples, window_])
+
   /** Markers on the sky: curated to a dozen so the view stays clean. */
-  const markers = useMemo(() => ranked.tonight.slice(0, 12), [ranked.tonight])
+  const markers = useMemo(() => tonight.slice(0, 12), [tonight])
 
   const notableMissing = useMemo(
     () => ranked.notTonight.filter((s) => s.target.popularity >= 0.6).slice(0, 10),
@@ -157,7 +183,8 @@ export function useSky(now: Date, overrideWindow?: ObservingWindow | null) {
     refresh,
     inventory,
     reloadInventory,
-    tonight: ranked.tonight,
+    tonight,
+    conditions,
     notTonight: ranked.notTonight,
     notableMissing,
     markers,
