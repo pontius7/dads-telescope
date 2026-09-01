@@ -7,12 +7,13 @@
  */
 import { useMemo, useRef, useEffect, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import {
   fixedHorizontal, bodyHorizontal, makeObserver, type GeoLocation,
 } from '../domain/ephemeris'
-import { MakeTime, RotateVector, Rotation_EQJ_HOR, Rotation_GAL_EQJ, Vector } from 'astronomy-engine'
-import { buildStarField, bvToRgb, magnitudeToSize } from './starfield'
+import { MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
+import { buildStarField, buildMilkyWay, bvToRgb, magnitudeToSize } from './starfield'
 import type { ScoredTarget } from '../useSky'
 
 /** Place a point on the celestial sphere from altitude/azimuth. */
@@ -46,7 +47,7 @@ export function altAzToVec3(altDeg: number, azDeg: number, r = 100): THREE.Vecto
 function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: boolean }) {
   const seeds = useMemo(() => buildStarField(4200), [])
 
-  const { positions, colors, sizes } = useMemo(() => {
+  const { positions, colors, sizes, twinkle, phase } = useMemo(() => {
     const observer = makeObserver(loc)
     const time = MakeTime(when)
     const rot = Rotation_EQJ_HOR(time, observer)
@@ -54,6 +55,8 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
     const pos: number[] = []
     const col: number[] = []
     const siz: number[] = []
+    const tw: number[] = []
+    const ph: number[] = []
 
     for (const st of seeds) {
       // One rotation matrix, applied by hand to every star. Calling the
@@ -72,15 +75,28 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
       const warm = 1 - 0.22 * (1 - Math.min(1, altDeg / 35))
       col.push(r * dim, g * dim * warm, b * dim * warm * warm)
       siz.push(magnitudeToSize(st.magnitude) * (0.75 + 0.25 * dim))
+      // Scintillation is genuinely stronger low down, where you are looking
+      // through more turbulent air — so twinkle amplitude follows altitude.
+      const lowness = 1 - Math.min(1, Math.max(0, altDeg / 55))
+      tw.push(0.06 + lowness * 0.42)
+      ph.push((st.x * 37.1 + st.y * 71.3 + st.z * 13.7) * 10 % 6.283)
     }
     return {
       positions: new Float32Array(pos),
       colors: new Float32Array(col),
       sizes: new Float32Array(siz),
+      twinkle: new Float32Array(tw),
+      phase: new Float32Array(ph),
     }
   }, [seeds, loc, when, explore])
 
   const texture = useMemo(() => glowTexture(), [])
+  const matRef = useRef<THREE.ShaderMaterial>(null)
+
+  // Drive the twinkle. One uniform update per frame, not a React re-render.
+  useFrame((state) => {
+    if (matRef.current) matRef.current.uniforms.uTime!.value = state.clock.elapsedTime
+  })
 
   return (
     <points>
@@ -88,8 +104,11 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
         <bufferAttribute attach="attributes-size" args={[sizes, 1]} />
+        <bufferAttribute attach="attributes-twinkle" args={[twinkle, 1]} />
+        <bufferAttribute attach="attributes-phase" args={[phase, 1]} />
       </bufferGeometry>
       <shaderMaterial
+        ref={matRef}
         transparent
         vertexColors
         depthWrite={false}
@@ -97,7 +116,8 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
         uniforms={{
           map: { value: texture },
           uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
-          uScale: { value: 5.0 },
+          uScale: { value: 3.1 },
+          uTime: { value: 0 },
         }}
         vertexShader={STAR_VERT}
         fragmentShader={STAR_FRAG}
@@ -112,26 +132,37 @@ function Stars({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: 
  */
 const STAR_VERT = /* glsl */ `
   attribute float size;
+  attribute float twinkle;
+  attribute float phase;
   uniform float uPixelRatio;
   uniform float uScale;
+  uniform float uTime;
   varying vec3 vColor;
+  varying float vTw;
   void main() {
-    vColor = color;
+    // Scintillation: two incommensurate frequencies so it never looks like a
+    // repeating blink. Amplitude comes from altitude, since low stars really
+    // do twinkle harder.
+    float f = sin(uTime * 2.7 + phase) * 0.6 + sin(uTime * 6.1 + phase * 1.7) * 0.4;
+    float amp = 1.0 + twinkle * f;
+    vTw = amp;
+    vColor = color * (0.82 + 0.18 * amp);
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
     // gl_PointSize is in PHYSICAL pixels, so it must be scaled by the device
     // pixel ratio or every star renders at half size on a Retina display.
-    gl_PointSize = size * uScale * uPixelRatio * (100.0 / -mv.z);
+    gl_PointSize = size * uScale * uPixelRatio * (100.0 / -mv.z) * (0.88 + 0.12 * amp);
   }
 `
 
 const STAR_FRAG = /* glsl */ `
   uniform sampler2D map;
   varying vec3 vColor;
+  varying float vTw;
   void main() {
     vec4 t = texture2D(map, gl_PointCoord);
     if (t.a < 0.01) discard;
-    gl_FragColor = vec4(vColor, 1.0) * t;
+    gl_FragColor = vec4(vColor * vTw, 1.0) * t;
   }
 `
 
@@ -145,10 +176,10 @@ function glowTexture(): THREE.CanvasTexture {
   const ctx = c.getContext('2d')!
   const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2)
   g.addColorStop(0.0, 'rgba(255,255,255,1)')
-  g.addColorStop(0.18, 'rgba(255,255,255,1)')
-  g.addColorStop(0.32, 'rgba(255,255,255,0.62)')
-  g.addColorStop(0.55, 'rgba(255,255,255,0.20)')
-  g.addColorStop(0.78, 'rgba(255,255,255,0.05)')
+  g.addColorStop(0.10, 'rgba(255,255,255,1)')
+  g.addColorStop(0.17, 'rgba(255,255,255,0.55)')
+  g.addColorStop(0.28, 'rgba(255,255,255,0.16)')
+  g.addColorStop(0.48, 'rgba(255,255,255,0.045)')
   g.addColorStop(1.0, 'rgba(255,255,255,0)')
   ctx.fillStyle = g
   ctx.fillRect(0, 0, S, S)
@@ -157,137 +188,104 @@ function glowTexture(): THREE.CanvasTexture {
 }
 
 /**
- * The Milky Way.
+ * The Milky Way, as additive nebulosity.
  *
- * A luminous band, not a point cloud — the real thing is unresolved
- * nebulosity, and no number of dots reads like it. Orientation comes from
- * `Rotation_GAL_EQJ`, so the band lies on the ACTUAL galactic plane and
- * therefore rises, sets and tilts correctly through the night.
+ * An earlier version stretched a canvas texture across a ring and looked
+ * wrong — a 1024x128 image over a 32-degree band produced visible diagonal
+ * striping and read as a grey smear. Hundreds of soft overlapping blobs at
+ * real galactic coordinates give organic structure with no UV stretching, and
+ * the Great Rift emerges from simply not placing blobs in the dust lanes.
  */
-function MilkyWay({ loc, when, explore }: { loc: GeoLocation; when: Date; explore: boolean }) {
-  const texture = useMemo(() => milkyWayTexture(), [])
+function MilkyWay({ loc, when }: { loc: GeoLocation; when: Date }) {
+  const seeds = useMemo(() => buildMilkyWay(1100), [])
+  const texture = useMemo(() => cloudTexture(), [])
 
-  // Build a strip of quads following the galactic equator.
-  const geometry = useMemo(() => {
-    const observer = makeObserver(loc)
+  const { positions, sizes, alphas } = useMemo(() => {
+    const rot = Rotation_EQJ_HOR(MakeTime(when), makeObserver(loc))
     const time = MakeTime(when)
-    const rotGalEqj = Rotation_GAL_EQJ()
-    const rotEqjHor = Rotation_EQJ_HOR(time, observer)
-
-    const SEGMENTS = 180
-    const HALF_WIDTH_DEG = 16
-    const R = 93
     const pos: number[] = []
-    const uv: number[] = []
-
-    const point = (lDeg: number, bDeg: number) => {
-      const b = (bDeg * Math.PI) / 180
-      const l = (lDeg * Math.PI) / 180
-      const gal = new Vector(Math.cos(b) * Math.cos(l), Math.cos(b) * Math.sin(l), Math.sin(b), time)
-      const hor = RotateVector(rotEqjHor, RotateVector(rotGalEqj, gal))
-      return [hor.y * R, hor.z * R, hor.x * R] as const
+    const siz: number[] = []
+    const alp: number[] = []
+    for (const c of seeds) {
+      const v = RotateVector(rot, new Vector(c.x, c.y, c.z, time))
+      if (v.z < -0.05) continue
+      pos.push(v.y * 92, v.z * 92, v.x * 92)
+      siz.push(c.size)
+      // Fades out near the horizon, where extinction genuinely kills it.
+      const alt = Math.asin(Math.max(-1, Math.min(1, v.z)))
+      alp.push(c.alpha * Math.max(0, Math.min(1, Math.sin(alt) * 2.6)))
     }
-
-    for (let i = 0; i < SEGMENTS; i += 1) {
-      const l0 = (i / SEGMENTS) * 360
-      const l1 = ((i + 1) / SEGMENTS) * 360
-      const [ax, ay, az] = point(l0, -HALF_WIDTH_DEG)
-      const [bx, by, bz] = point(l0, HALF_WIDTH_DEG)
-      const [cx, cy, cz] = point(l1, HALF_WIDTH_DEG)
-      const [dx, dy, dz] = point(l1, -HALF_WIDTH_DEG)
-      const u0 = i / SEGMENTS
-      const u1 = (i + 1) / SEGMENTS
-      pos.push(ax, ay, az, bx, by, bz, cx, cy, cz, ax, ay, az, cx, cy, cz, dx, dy, dz)
-      uv.push(u0, 0, u0, 1, u1, 1, u0, 0, u1, 1, u1, 0)
+    return {
+      positions: new Float32Array(pos),
+      sizes: new Float32Array(siz),
+      alphas: new Float32Array(alp),
     }
+  }, [seeds, loc, when])
 
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
-    return g
-  }, [loc, when])
+  if (positions.length === 0) return null
 
   return (
-    <mesh geometry={geometry} renderOrder={-1}>
-      <meshBasicMaterial
-        map={texture}
+    <points renderOrder={-2}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-size" args={[sizes, 1]} />
+        <bufferAttribute attach="attributes-alpha" args={[alphas, 1]} />
+      </bufferGeometry>
+      <shaderMaterial
         transparent
-        opacity={explore ? 0.5 : 0.85}
         depthWrite={false}
-        side={THREE.DoubleSide}
         blending={THREE.AdditiveBlending}
+        uniforms={{
+          map: { value: texture },
+          uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+        }}
+        vertexShader={CLOUD_VERT}
+        fragmentShader={CLOUD_FRAG}
       />
-    </mesh>
+    </points>
   )
 }
 
-/**
- * A soft, mottled band. Brightest toward galactic longitude 0 (the direction
- * of the galactic centre, in Sagittarius) and split by a dark rift, which is
- * what the naked eye actually shows.
- */
-let cachedMw: THREE.CanvasTexture | null = null
-function milkyWayTexture(): THREE.CanvasTexture {
-  if (cachedMw) return cachedMw
-  const W = 1024
-  const H = 128
+const CLOUD_VERT = /* glsl */ `
+  attribute float size;
+  attribute float alpha;
+  uniform float uPixelRatio;
+  varying float vAlpha;
+  void main() {
+    vAlpha = alpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = size * uPixelRatio * (620.0 / -mv.z);
+  }
+`
+
+const CLOUD_FRAG = /* glsl */ `
+  uniform sampler2D map;
+  varying float vAlpha;
+  void main() {
+    vec4 t = texture2D(map, gl_PointCoord);
+    gl_FragColor = vec4(vec3(0.70, 0.76, 0.94), t.a * vAlpha * 0.55);
+  }
+`
+
+let cachedCloud: THREE.CanvasTexture | null = null
+function cloudTexture(): THREE.CanvasTexture {
+  if (cachedCloud) return cachedCloud
+  const S = 128
   const c = document.createElement('canvas')
-  c.width = W
-  c.height = H
+  c.width = c.height = S
   const ctx = c.getContext('2d')!
-  ctx.clearRect(0, 0, W, H)
-
-  // Deterministic mottling.
-  let seed = 987654321
-  const rnd = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0
-    return seed / 4294967296
-  }
-
-  for (let i = 0; i < 2600; i += 1) {
-    const x = rnd() * W
-    // Longitude 0 sits at u = 0; brightness falls away toward the anticentre.
-    const lon = (x / W) * 360
-    const toCentre = Math.min(lon, 360 - lon) / 180
-    const richness = Math.pow(1 - toCentre, 1.7)
-    if (rnd() > 0.18 + richness * 0.82) continue
-
-    const spread = 12 + rnd() * 22
-    const y = H / 2 + (rnd() + rnd() + rnd() - 1.5) * spread
-    const r = 6 + rnd() * 30
-    const a = (0.012 + rnd() * 0.05) * (0.35 + richness)
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-    g.addColorStop(0, `rgba(214,226,255,${a})`)
-    g.addColorStop(1, 'rgba(214,226,255,0)')
-    ctx.fillStyle = g
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  // The Great Rift: dust lanes darkening the band's middle.
-  ctx.globalCompositeOperation = 'destination-out'
-  for (let i = 0; i < 240; i += 1) {
-    const x = rnd() * W
-    const lon = (x / W) * 360
-    const toCentre = Math.min(lon, 360 - lon) / 180
-    if (rnd() > 1 - toCentre * 0.75) continue
-    const y = H / 2 + (rnd() - 0.5) * 26
-    const r = 8 + rnd() * 26
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-    g.addColorStop(0, `rgba(0,0,0,${0.25 + rnd() * 0.45})`)
-    g.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = g
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  ctx.globalCompositeOperation = 'source-over'
-
-  const tex = new THREE.CanvasTexture(c)
-  tex.wrapS = THREE.RepeatWrapping
-  cachedMw = tex
-  return tex
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2)
+  // A very soft falloff, so overlapping blobs blend into cloud rather than
+  // reading as individual circles.
+  g.addColorStop(0.0, 'rgba(255,255,255,0.55)')
+  g.addColorStop(0.35, 'rgba(255,255,255,0.22)')
+  g.addColorStop(0.7, 'rgba(255,255,255,0.05)')
+  g.addColorStop(1.0, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, S, S)
+  cachedCloud = new THREE.CanvasTexture(c)
+  return cachedCloud
 }
 
 /** A faint band at the horizon so "down" is legible without drawing a landscape. */
@@ -343,6 +341,67 @@ function Horizon({ explore }: { explore: boolean }) {
         <meshBasicMaterial color="#33465e" side={THREE.DoubleSide} transparent opacity={0.7} />
       </mesh>
     </>
+  )
+}
+
+/**
+ * Occasional meteors.
+ *
+ * Sporadic meteors are real and frequent — a handful an hour on any clear
+ * night. They are the one thing in this scene that is genuinely random rather
+ * than computed, and they are drawn as transient streaks, never labelled or
+ * clickable, so nothing about them can be mistaken for data.
+ */
+function Meteors() {
+  const ref = useRef<THREE.LineSegments>(null)
+  const state = useRef({ next: 2.5, active: [] as { t: number; life: number; a: THREE.Vector3; b: THREE.Vector3 }[] })
+
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6 * 8), 3))
+    return g
+  }, [])
+
+  useFrame((_, dt) => {
+    const st = state.current
+    st.next -= dt
+    if (st.next <= 0 && st.active.length < 3) {
+      // Somewhere in the upper sky, travelling a few degrees.
+      const alt = 25 + Math.random() * 55
+      const az = Math.random() * 360
+      const a = altAzToVec3(alt, az, 90)
+      const dAlt = -6 - Math.random() * 12
+      const dAz = (Math.random() - 0.5) * 26
+      const b = altAzToVec3(alt + dAlt, az + dAz, 90)
+      st.active.push({ t: 0, life: 0.5 + Math.random() * 0.5, a, b })
+      st.next = 5 + Math.random() * 16
+    }
+
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute
+    const arr = pos.array as Float32Array
+    arr.fill(0)
+    let i = 0
+    for (const m of st.active) {
+      m.t += dt
+      const f = m.t / m.life
+      if (f >= 1) continue
+      // The streak head runs ahead of the tail, so it reads as motion.
+      const head = Math.min(1, f * 1.5)
+      const tail = Math.max(0, f * 1.5 - 0.35)
+      const h = m.a.clone().lerp(m.b, head)
+      const tl = m.a.clone().lerp(m.b, tail)
+      arr.set([tl.x, tl.y, tl.z, h.x, h.y, h.z], i * 6)
+      i += 1
+    }
+    st.active = st.active.filter((m) => m.t / m.life < 1)
+    pos.needsUpdate = true
+    if (ref.current) ref.current.visible = i > 0
+  })
+
+  return (
+    <lineSegments ref={ref} geometry={geo} renderOrder={2}>
+      <lineBasicMaterial color="#dce6ff" transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </lineSegments>
   )
 }
 
@@ -411,15 +470,59 @@ function Marker({
   if (pos.alt < 2 && !explore) return null
 
   return (
+    <AnimatedMarker
+      position={pos.vec}
+      selected={selected}
+      texture={tex}
+      onSelect={() => onSelect(target.target.id)}
+    />
+  )
+}
+
+/**
+ * A marker that breathes, and pulses harder when selected.
+ *
+ * The motion is deliberately small — a star chart that wobbles is annoying, but
+ * something completely static reads as a screenshot rather than a live sky.
+ */
+function AnimatedMarker({
+  position, selected, texture, onSelect,
+}: {
+  position: THREE.Vector3
+  selected: boolean
+  texture: THREE.CanvasTexture
+  onSelect: () => void
+}) {
+  const ref = useRef<THREE.Sprite>(null)
+  const born = useRef(0)
+
+  useFrame((state, dt) => {
+    if (!ref.current) return
+    born.current = Math.min(1, born.current + dt * 2.6)
+    // Ease-out entry, so markers arrive rather than appear.
+    const entry = 1 - Math.pow(1 - born.current, 3)
+    const t = state.clock.elapsedTime
+    const breathe = selected
+      ? 1 + Math.sin(t * 2.4) * 0.07
+      : 1 + Math.sin(t * 1.1 + position.x) * 0.025
+    const base = selected ? 11 : 8.5
+    const k = base * entry * breathe
+    ref.current.scale.set(k, k, 1)
+    const mat = ref.current.material as THREE.SpriteMaterial
+    mat.opacity = entry
+  })
+
+  return (
     <sprite
-      position={[pos.vec.x, pos.vec.y, pos.vec.z]}
-      scale={selected ? [11, 11, 1] : [8.5, 8.5, 1]}
+      ref={ref}
+      position={[position.x, position.y, position.z]}
+      scale={[0.01, 0.01, 1]}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(target.target.id)
+        onSelect()
       }}
     >
-      <spriteMaterial map={tex} transparent depthTest={false} />
+      <spriteMaterial map={texture} transparent depthTest={false} opacity={0} />
     </sprite>
   )
 }
@@ -581,6 +684,12 @@ function CameraRig({
       s.fov += (wantFov - s.fov) * k
       if (Math.abs(shortestAngle(s.az, target.current.az)) < 0.25) target.current = null
     }
+    // Idle drift: a very slow pan when nothing else is driving the camera, so
+    // the scene is never completely frozen. Cancelled by any interaction.
+    if (!target.current && !sensor && !drag.current) {
+      s.az = wrap360(s.az + dt * 0.35)
+    }
+
     const dir = altAzToVec3(s.alt, s.az, 1)
     camera.position.set(0, 0, 0)
     camera.lookAt(dir)
@@ -626,7 +735,7 @@ export function SkyScene({
     >
       <color attach="background" args={['#05070c']} />
       <fog attach="fog" args={['#05070c', 120, 260]} />
-      <MilkyWay loc={loc} when={when} explore={explore} />
+      <MilkyWay loc={loc} when={when} />
       <Stars loc={loc} when={when} explore={explore} />
       <Horizon explore={explore} />
       <Cardinals />
@@ -641,6 +750,14 @@ export function SkyScene({
           explore={explore}
         />
       ))}
+      <Meteors />
+      <EffectComposer>
+        {/* Bloom is what turns bright points into something that reads as
+            LIGHT rather than as dots. Threshold kept high so only genuinely
+            bright stars and the markers bloom, not the whole field. */}
+        <Bloom intensity={0.85} luminanceThreshold={0.55} luminanceSmoothing={0.22} mipmapBlur radius={0.42} />
+        <Vignette offset={0.28} darkness={0.62} eskil={false} />
+      </EffectComposer>
       <CameraRig
         flyTo={flyTo}
         zoomNudge={zoomNudge}

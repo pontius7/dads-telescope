@@ -213,3 +213,73 @@ export function magnitudeToSize(mag: number): number {
   const flux = Math.pow(10, -0.4 * mag)
   return 0.55 + 2.6 * Math.pow(flux, 0.185)
 }
+
+
+// ---------------------------------------------------------------------------
+// Milky Way nebulosity
+// ---------------------------------------------------------------------------
+
+export interface CloudSeed {
+  x: number
+  y: number
+  z: number
+  /** Rendered radius. */
+  size: number
+  /** Additive brightness. */
+  alpha: number
+}
+
+/**
+ * The Milky Way, built from many soft overlapping sprites rather than a
+ * texture stretched across a band.
+ *
+ * The textured-band approach was tried first and looked wrong: a 1024x128
+ * canvas stretched over a 32-degree-tall ring produced visible diagonal
+ * striping and read as a grey smear rather than a star cloud. Hundreds of
+ * additive blobs at real galactic coordinates give organic mottling with no UV
+ * stretching at all, and the dark rift falls out of simply not placing blobs
+ * where the dust lanes are.
+ */
+export function buildMilkyWay(count = 900): CloudSeed[] {
+  const out: CloudSeed[] = []
+  const rnd = makeRandom(778899)
+  const galToEqj = Rotation_GAL_EQJ()
+  const t = MakeTime(new Date(Date.UTC(2000, 0, 1, 12)))
+
+  for (let i = 0; i < count; i += 1) {
+    const lDeg = rnd() * 360
+    // Richness rises steeply toward the galactic centre at l = 0.
+    const toCentre = Math.min(lDeg, 360 - lDeg) / 180
+    const richness = Math.pow(1 - toCentre, 1.9)
+    if (rnd() > 0.16 + richness * 0.84) continue
+
+    // Gaussian scatter about the galactic equator.
+    const u1 = Math.max(1e-9, rnd())
+    const u2 = rnd()
+    const bDeg = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2) * 6.5
+
+    // The Great Rift: a dust lane that darkens the middle of the band toward
+    // the centre. Modelled by simply omitting blobs there.
+    const inRift = Math.abs(bDeg) < 2.2 && richness > 0.35 && rnd() < 0.55
+    if (inRift) continue
+
+    const bRad = (bDeg * Math.PI) / 180
+    const lRad = (lDeg * Math.PI) / 180
+    const gal = new Vector(
+      Math.cos(bRad) * Math.cos(lRad),
+      Math.cos(bRad) * Math.sin(lRad),
+      Math.sin(bRad),
+      t,
+    )
+    const e = RotateVector(galToEqj, gal)
+
+    out.push({
+      x: e.x,
+      y: e.y,
+      z: e.z,
+      size: 5 + rnd() * 16,
+      alpha: (0.05 + rnd() * 0.16) * (0.35 + richness * 0.9),
+    })
+  }
+  return out
+}
