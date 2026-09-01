@@ -1,0 +1,292 @@
+/*
+ * NOCTURNA — near-black, hairline rules, small-caps labels, near-zero chrome.
+ * Reads like an instrument rather than an app, which is what suits someone
+ * standing in a dark back yard.
+ *
+ * There is no light theme. This is deliberate and is the one place the usual
+ * "support both schemes" rule does not apply: a white interface at 1 a.m.
+ * destroys the dark adaptation the telescope depends on.
+ */
+:root {
+  --bg: #05070c;
+  --ink: #e8ecf4;
+  --muted: #7d8798;
+  --faint: #4a5364;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --surface: rgba(10, 14, 22, 0.92);
+
+  --good: #6ee7a8;
+  --fair: #e8c468;
+  --poor: #e8806b;
+
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --sheet-ease: linear(
+    0, 0.2178 2.1%, 0.5992 6.2%, 0.7827 8.8%, 0.8811 11%, 0.9226 12.4%,
+    0.9552 14%, 0.9805 16%, 1.0043 19.4%, 1.0119 23.5%, 1 100%
+  );
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 15px/1.5 "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* The page itself must never scroll — content scrolls inside sheets. */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* The sky is the application. */
+.stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  touch-action: none;
+}
+
+.label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.hairline { height: 1px; background: var(--line); border: 0; margin: 0; }
+
+/* ---------------------------------------------------------------- top bar */
+.topbar {
+  position: fixed;
+  top: calc(var(--safe-t) + 10px);
+  left: calc(var(--safe-l) + 16px);
+  right: calc(var(--safe-r) + 16px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 20;
+  pointer-events: none;
+}
+.topbar > * { pointer-events: auto; }
+
+.place {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+.place strong { display: block; font-weight: 500; font-size: 14px; letter-spacing: 0.01em; }
+.place span { display: block; font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+
+.iconbtn {
+  width: 44px; height: 44px;           /* full 44px touch target */
+  display: grid; place-items: center;
+  background: none; border: 0; padding: 0;
+  color: var(--ink); cursor: pointer;
+  border-radius: 10px;
+}
+.iconbtn:hover { background: rgba(255,255,255,0.06); }
+.iconbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- zoom */
+.zoom {
+  position: fixed;
+  right: calc(var(--safe-r) + 16px);
+  bottom: calc(var(--safe-b) + 96px);
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 15;
+}
+.zoom button {
+  width: 44px; height: 44px;
+  background: rgba(8,11,18,0.8);
+  border: 0; color: var(--ink);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.zoom button:hover { background: rgba(255,255,255,0.08); }
+
+/* ---------------------------------------------------------------- sheet */
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 30;
+  background: var(--surface);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  transition: max-height 420ms var(--sheet-ease), transform 420ms var(--sheet-ease);
+  display: flex;
+  flex-direction: column;
+  max-height: 78dvh;
+  padding-bottom: var(--safe-b);
+}
+
+/*
+ * Collapsed is the DEFAULT state on the phone. The sky is the application;
+ * the sheet is a handle sitting over it until Dad asks for it. Opening it
+ * full-height by default would bury the thing he came to look at.
+ */
+.sheet.collapsed {
+  max-height: calc(60px + var(--safe-b));
+  overflow: hidden;
+}
+.sheet.collapsed .sheet-body { opacity: 0; pointer-events: none; }
+
+.grabber {
+  width: 100%;
+  background: none; border: 0;
+  /* 16/14 padding keeps the handle at or above the 44px minimum touch target;
+     at 12/10 it measured 37px, which is a miss-prone thumb target one-handed. */
+  padding: 16px 18px 14px;
+  min-height: 48px;
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--ink); cursor: pointer; font: inherit;
+  flex: 0 0 auto;
+}
+.grabber::before {
+  content: "";
+  position: absolute; top: 6px; left: 50%;
+  width: 34px; height: 3px; margin-left: -17px;
+  border-radius: 2px; background: var(--line-strong);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;   /* scrolling the sheet must not scroll the page */
+  padding: 0 18px 18px;
+  transition: opacity 200ms var(--ease);
+}
+
+/* Sticky return control — Dad must never feel stranded in content. */
+.backtosky {
+  position: sticky;
+  bottom: 0;
+  margin: 8px -18px -18px;
+  padding: 18px 18px calc(14px + var(--safe-b));
+  /* Fully opaque where the text sits, fading only at the very top edge, so
+     content scrolling underneath never collides with the label. */
+  background: linear-gradient(to top, #0a0e16 0%, #0a0e16 74%, rgba(10, 14, 22, 0) 100%);
+  border-top: 1px solid var(--line);
+  border: 0;
+  width: calc(100% + 36px);
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- rows */
+.row {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%;
+  padding: 11px 0;
+  background: none; border: 0; border-bottom: 1px solid var(--line);
+  color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.row:last-child { border-bottom: 0; }
+.row:hover { background: rgba(255,255,255,0.03); }
+.row-main { flex: 1; min-width: 0; }
+.row-name {
+  display: block;                      /* spans are inline by default */
+  font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row-sub {
+  display: block;
+  font-size: 11px; color: var(--muted); margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------- score ring */
+.ring { flex: 0 0 auto; display: block; }
+.ring-num {
+  font-size: 12px; font-weight: 500;
+  fill: var(--ink);
+  /* The NUMBER carries the meaning; colour is only reinforcement. */
+}
+
+/* ---------------------------------------------------------------- detail */
+.detail-title { font-size: 26px; font-weight: 400; letter-spacing: -0.01em; margin: 6px 0 2px; }
+.detail-sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+
+.facts { display: grid; gap: 0; margin: 4px 0 8px; }
+.fact { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.fact:last-child { border-bottom: 0; }
+.fact-v { font-size: 14px; }
+.fact-v em { font-style: normal; color: var(--muted); font-size: 12px; display: block; margin-top: 3px; }
+
+.chip {
+  display: inline-block; padding: 3px 8px; border: 1px solid var(--line-strong);
+  border-radius: 999px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+
+.note { font-size: 12px; color: var(--muted); line-height: 1.55; margin: 10px 0 0; }
+.warn { color: var(--fair); }
+
+.setup {
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 6px 0 4px;
+}
+.setup-main { font-size: 16px; line-height: 1.35; }
+.setup-nums { font-size: 12px; color: var(--muted); margin-top: 7px; letter-spacing: 0.03em; }
+
+/* ---------------------------------------------------------------- desktop */
+@media (min-width: 860px) {
+  /* Not a stretched phone: the sky keeps the full viewport and content opens
+     in a slim right-hand panel beside it. */
+  .sheet {
+    left: auto;
+    right: 16px;
+    top: 16px;
+    bottom: 16px;
+    width: 380px;
+    max-height: none;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    transform: translateX(var(--panel-x, 0));
+    transition: transform 420ms var(--sheet-ease), opacity 260ms var(--ease);
+  }
+  .grabber::before { display: none; }
+  .backtosky { display: none; }
+  .zoom { bottom: calc(var(--safe-b) + 24px); right: 420px; }
+  /* On desktop there is room for the panel and the sky at once, so the
+     collapsed state is unnecessary. */
+  .sheet.collapsed { max-height: none; overflow: visible; }
+  .sheet.collapsed .sheet-body { opacity: 1; pointer-events: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet { transition-duration: 1ms; }
+  * { animation-duration: 1ms !important; }
+}
