@@ -20,6 +20,19 @@
   --fair: #e8c468;
   --poor: #e8806b;
 
+  /* ---------------------------------------------------------------------
+     Type scale. This app is used outdoors, at night, by someone who does not
+     want to hunt for reading glasses, so the floor is 13px and that is
+     reserved for uppercase eyebrows with wide tracking. Anything that is a
+     sentence starts at 16.
+     --------------------------------------------------------------------- */
+  --t-eyebrow: 13px;   /* uppercase labels, wide-tracked */
+  --t-meta: 15px;      /* credits, footnotes, secondary detail */
+  --t-body: 16px;      /* sentences, notes, sub-lines */
+  --t-value: 18px;     /* numbers and answers you act on */
+  --t-lead: 20px;      /* the one thing a panel is about */
+  --t-title: 30px;
+
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --sheet-ease: linear(
     0, 0.2178 2.1%, 0.5992 6.2%, 0.7827 8.8%, 0.8811 11%, 0.9226 12.4%,
@@ -62,7 +75,7 @@ body {
 }
 
 .label {
-  font-size: 10px;
+  font-size: var(--t-eyebrow);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
@@ -95,8 +108,8 @@ body {
   cursor: pointer;
   font: inherit;
 }
-.place strong { display: block; font-weight: 500; font-size: 14px; letter-spacing: 0.01em; }
-.place span { display: block; font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+.place strong { display: block; font-weight: 500; font-size: var(--t-value); letter-spacing: 0.01em; }
+.place span { display: block; font-size: var(--t-meta); color: var(--muted); letter-spacing: 0.06em; }
 
 .iconbtn {
   width: 44px; height: 44px;           /* full 44px touch target */
@@ -197,7 +210,7 @@ body {
   color: var(--ink);
   font: inherit;
   letter-spacing: 0.12em;
-  font-size: 11px;
+  font-size: var(--t-eyebrow);
   text-transform: uppercase;
   cursor: pointer;
   text-align: center;
@@ -216,40 +229,40 @@ body {
 .row-main { flex: 1; min-width: 0; }
 .row-name {
   display: block;                      /* spans are inline by default */
-  font-size: 15px;
+  font-size: var(--t-value);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .row-sub {
   display: block;
-  font-size: 11px; color: var(--muted); margin-top: 3px;
+  font-size: var(--t-body); color: var(--muted); margin-top: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* ---------------------------------------------------------------- score ring */
 .ring { flex: 0 0 auto; display: block; }
 .ring-num {
-  font-size: 12px; font-weight: 500;
+  font-size: var(--t-value); font-weight: 500;
   fill: var(--ink);
   /* The NUMBER carries the meaning; colour is only reinforcement. */
 }
 
 /* ---------------------------------------------------------------- detail */
-.detail-title { font-size: 26px; font-weight: 400; letter-spacing: -0.01em; margin: 6px 0 2px; }
-.detail-sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.detail-title { font-size: var(--t-title); font-weight: 400; letter-spacing: -0.01em; margin: 6px 0 2px; }
+.detail-sub { font-size: var(--t-body); color: var(--muted); margin-bottom: 16px; }
 
 .facts { display: grid; gap: 0; margin: 4px 0 8px; }
-.fact { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.fact { display: grid; grid-template-columns: 112px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .fact:last-child { border-bottom: 0; }
-.fact-v { font-size: 14px; }
-.fact-v em { font-style: normal; color: var(--muted); font-size: 12px; display: block; margin-top: 3px; }
+.fact-v { font-size: var(--t-value); }
+.fact-v em { font-style: normal; color: var(--muted); font-size: var(--t-body); display: block; margin-top: 4px; }
 
 .chip {
   display: inline-block; padding: 3px 8px; border: 1px solid var(--line-strong);
-  border-radius: 999px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  border-radius: 999px; font-size: var(--t-eyebrow); letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--muted);
 }
 
-.note { font-size: 12px; color: var(--muted); line-height: 1.55; margin: 10px 0 0; }
+.note { font-size: var(--t-body); color: var(--muted); line-height: 1.55; margin: 10px 0 0; }
 .warn { color: var(--fair); }
 
 .setup {
@@ -258,8 +271,8 @@ body {
   padding: 14px;
   margin: 6px 0 4px;
 }
-.setup-main { font-size: 16px; line-height: 1.35; }
-.setup-nums { font-size: 12px; color: var(--muted); margin-top: 7px; letter-spacing: 0.03em; }
+.setup-main { font-size: var(--t-lead); line-height: 1.35; }
+.setup-nums { font-size: var(--t-body); color: var(--muted); margin-top: 7px; letter-spacing: 0.03em; }
 
 /* ---------------------------------------------------------------- desktop */
 @media (min-width: 860px) {
@@ -320,7 +333,7 @@ body {
   padding: 9px 12px;
   min-height: 38px;
   color: var(--muted);
-  font: inherit; font-size: 11px;
+  font: inherit; font-size: var(--t-eyebrow);
   letter-spacing: 0.1em; text-transform: uppercase;
   cursor: pointer;
 }
@@ -354,7 +367,7 @@ body {
   backdrop-filter: blur(12px);
   border: 1px solid var(--line);
   border-radius: 12px;
-  color: var(--ink); font: inherit; font-size: 12px;
+  color: var(--ink); font: inherit; font-size: var(--t-body);
   letter-spacing: 0.08em; text-transform: uppercase;
   cursor: pointer;
 }
@@ -369,7 +382,7 @@ body {
   background: rgba(8,11,18,0.92);
   border: 1px solid var(--line);
   border-radius: 10px;
-  font-size: 12px; color: var(--muted);
+  font-size: var(--t-body); color: var(--muted);
   max-width: 88vw; text-align: center;
 }
 
@@ -382,12 +395,12 @@ body {
 }
 .shot figcaption {
   margin-top: 7px;
-  font-size: 10.5px; line-height: 1.5; color: var(--faint);
+  font-size: var(--t-meta); line-height: 1.5; color: var(--faint);
 }
 .shot figcaption em { font-style: normal; color: var(--muted); }
 
 .scoreline { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
-.conf { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.conf { font-size: var(--t-body); color: var(--muted); margin-top: 3px; }
 
 .chip { margin-left: 8px; }
 
@@ -424,7 +437,7 @@ body {
   border-radius: 8px;
   padding: 10px 12px;
   color: var(--ink);
-  font: inherit; font-size: 15px;   /* 16px-ish stops iOS zooming the field */
+  font: inherit; font-size: 16px;   /* 16 exactly: below it, iOS zooms the field */
   min-height: 44px;
   width: 100%;
 }
@@ -437,7 +450,7 @@ body {
   border: 1px solid var(--good);
   border-radius: 12px;
   color: var(--good);
-  font: inherit; font-size: 13px;
+  font: inherit; font-size: var(--t-body);
   letter-spacing: 0.1em; text-transform: uppercase;
   cursor: pointer;
 }
@@ -445,7 +458,7 @@ body {
 
 .linkbtn {
   background: none; border: 0;
-  color: var(--muted); font: inherit; font-size: 12px;
+  color: var(--muted); font: inherit; font-size: var(--t-body);
   cursor: pointer; padding: 8px;
   min-height: 40px;
 }
@@ -480,7 +493,7 @@ body {
 .objview-hint {
   position: absolute;
   left: 10px; bottom: 9px;
-  font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  font-size: var(--t-eyebrow); letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--faint);
   pointer-events: none;
 }
@@ -493,12 +506,12 @@ body {
   margin-bottom: 4px;
 }
 .distance-v {
-  font-size: 21px; font-weight: 400; letter-spacing: -0.01em;
+  font-size: 26px; font-weight: 400; letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
-.distance-sub { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.distance-sub { font-size: var(--t-body); color: var(--muted); line-height: 1.45; }
 
-.credit { font-size: 10.5px; color: var(--faint); line-height: 1.5; margin: 0 0 10px; }
+.credit { font-size: var(--t-meta); color: var(--faint); line-height: 1.5; margin: 0 0 10px; }
 
 /* ------------------------------------------------- observer's dashboard */
 .dash {
@@ -514,10 +527,10 @@ body {
 }
 .cell:nth-child(odd) { padding-right: 14px; }
 .cell-k {
-  font-size: 9.5px; letter-spacing: 0.13em; text-transform: uppercase;
+  font-size: var(--t-eyebrow); letter-spacing: 0.13em; text-transform: uppercase;
   color: var(--muted);
 }
-.cell-v { font-size: 15px; font-variant-numeric: tabular-nums; }
+.cell-v { font-size: var(--t-lead); font-variant-numeric: tabular-nums; }
 
 /* Three-column reference rows: name, value, secondary. Tabular figures so the
    columns line up when scanned. */
@@ -528,10 +541,10 @@ body {
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
 }
-.dashrow-n { font-size: 14px; }
-.dashrow-v { font-size: 13px; font-variant-numeric: tabular-nums; }
+.dashrow-n { font-size: var(--t-value); }
+.dashrow-v { font-size: var(--t-value); font-variant-numeric: tabular-nums; }
 .dashrow-m {
-  font-size: 11px; color: var(--muted);
+  font-size: var(--t-body); color: var(--muted);
   font-variant-numeric: tabular-nums;
   min-width: 54px; text-align: right;
 }
@@ -562,7 +575,7 @@ body {
 }
 
 .hud-name {
-  font-size: 11px;
+  font-size: var(--t-eyebrow);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
@@ -582,15 +595,15 @@ body {
 }
 
 .hud-sub {
-  font-size: 13px;
+  font-size: var(--t-body);
   color: var(--muted);
-  margin-top: 6px;
+  margin-top: 8px;
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
 }
 
 .hud-warn {
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: 12px;
+  font-size: var(--t-body);
   line-height: 1.45;
   color: var(--fair);
   background: rgba(10, 14, 22, 0.82);
@@ -620,3 +633,18 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .hud[data-phase='locked'] .hud-turn { animation: none; }
 }
+
+/* Picture, then name, then score. The photograph leads because it is what you
+   recognise; the score closes the row because it is what you compare. */
+.row-thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: block;
+  margin-right: 14px;
+  background: #0a0e16;
+}
+/* No verified photograph: hold the space, show nothing. */
+.row-thumb-none { background: none; }
+.row .ring { margin-left: 12px; }

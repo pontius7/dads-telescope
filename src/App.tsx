@@ -23,6 +23,7 @@ import { TELESCOPE, magnification, exitPupilMm } from './domain/optics'
 import { describeFreshness } from './services/weather'
 import { useOrientation } from './useOrientation'
 import { PointingHUD } from './PointingHUD'
+import { hasThumb } from './sky/thumbs'
 import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey } from './i18n'
 
 type Panel =
@@ -276,9 +277,11 @@ function Ring({ score }: { score: number }) {
   const s = Math.round(score)
   const colour = s >= 75 ? 'var(--good)' : s >= 50 ? 'var(--fair)' : 'var(--poor)'
   return (
-    <svg className="ring" width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
-      <circle cx="21" cy="21" r="18" fill="none" stroke={colour} strokeWidth="1.4" opacity="0.85" />
-      <text className="ring-num" x="21" y="22" textAnchor="middle" dominantBaseline="middle">{s}</text>
+    // Matches the photograph bead's footprint, so a row with no verified
+    // picture still lines up with the rows that have one.
+    <svg className="ring" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
+      <circle cx="24" cy="24" r="21" fill="none" stroke={colour} strokeWidth="1.5" opacity="0.85" />
+      <text className="ring-num" x="24" y="25" textAnchor="middle" dominantBaseline="middle">{s}</text>
     </svg>
   )
 }
@@ -320,11 +323,32 @@ function displayName(s: ScoredTarget): string {
   return ('commonName' in s.target && s.target.commonName) || s.target.name
 }
 
+/**
+ * The object's own photograph, leading its row.
+ *
+ * A target with no verified photograph gets an EMPTY slot of the same size,
+ * not a stand-in image. Holding the space keeps every name on the same left
+ * edge; filling it with a generic picture would be the fabrication the app
+ * refuses everywhere else.
+ */
+function RowThumb({ s }: { s: ScoredTarget }) {
+  if (!hasThumb(s.target.id)) return <span className="row-thumb row-thumb-none" aria-hidden="true" />
+  return (
+    <img
+      className="row-thumb"
+      src={`/thumbs/${s.target.id}.webp`}
+      alt=""
+      loading="lazy"
+      decoding="async"
+    />
+  )
+}
+
 function TargetRow({ s, onSelect }: { s: ScoredTarget; onSelect: (id: string) => void }) {
   const hasCommon = 'commonName' in s.target && s.target.commonName
   return (
     <button className="row" onClick={() => onSelect(s.target.id)}>
-      <Ring score={s.observability.finalScore} />
+      <RowThumb s={s} />
       <span className="row-main">
         <span className="row-name">{displayName(s)}</span>
         <span className="row-sub">
@@ -332,6 +356,7 @@ function TargetRow({ s, onSelect }: { s: ScoredTarget; onSelect: (id: string) =>
           {Math.round(s.observability.peakAltitudeDeg)}° {compass(s.observability.peakAzimuthDeg)}
         </span>
       </span>
+      <Ring score={s.observability.finalScore} />
     </button>
   )
 }
