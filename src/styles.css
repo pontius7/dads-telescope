@@ -691,3 +691,33 @@ body {
   background: none;
   border: 1px solid var(--faint);
 }
+
+/* News. A headline is the thing being read, so it gets the room a headline
+   needs; the picture is an anchor for the eye, not the content. */
+.news-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+}
+.news-headline {
+  display: block;
+  font-size: var(--t-value);
+  line-height: 1.32;
+  color: var(--ink);
+  font-weight: 400;
+  white-space: normal;
+}
+.news-row .row-sub { margin-top: 6px; }
+.news-thumb {
+  flex: 0 0 auto;
+  width: 76px;
+  height: 76px;
+  border-radius: 10px;
+  object-fit: cover;
+  display: block;
+  background: #0a0e16;
+}
+/* No picture in the feed: hold the space so the headlines stay aligned. */
+.news-thumb-none { background: rgba(255, 255, 255, 0.03); }

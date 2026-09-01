@@ -1,14 +1,20 @@
 {
-  // Static-assets-only Worker: there is no server code, so no `main` entry.
-  // Cloudflare serves everything in dist/ straight from its edge.
+  // Almost static. `main` exists for exactly one route, /api/news: four of the
+  // seven news feeds send no CORS header, so a browser cannot read them and
+  // something server-side has to. Every other request is handed to the asset
+  // store untouched, which is what `ASSETS` below is for.
   //
   // The name matches the project already created in the dashboard, so this
   // updates it in place rather than creating a second one.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dads-telescope-vol",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-08-31",
   "assets": {
     "directory": "./dist",
+
+    // The binding the Worker forwards everything-but-/api/news to.
+    "binding": "ASSETS",
 
     // The Workers-native SPA fallback. This is the correct mechanism here —
     // a `_redirects` file with `/* -> /index.html 200` is the Pages idiom and

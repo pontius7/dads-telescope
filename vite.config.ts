@@ -34,6 +34,9 @@ export default defineConfig({
         // Weather is deliberately NEVER precached or served stale-as-current.
         // The app must show "Weather unavailable" rather than imply freshness.
         navigateFallback: '/index.html',
+        // The news endpoint is not a page and must never be answered from the
+        // precache — offline it should fail, so the screen can say so.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             // Both hosts, because 46 of the 59 verified images live on
@@ -50,6 +53,11 @@ export default defineConfig({
       },
     }),
   ],
+  // `/api/news` lives in the Worker, not in Vite. Point the dev server at
+  // `wrangler dev` so the News screen works the same way locally as deployed.
+  server: {
+    proxy: { '/api': 'http://localhost:8788' },
+  },
   build: {
     rollupOptions: {
       output: {

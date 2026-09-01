@@ -26,6 +26,7 @@ import { PointingHUD } from './PointingHUD'
 import { hasThumb } from './sky/thumbs'
 import { SHOWPIECE_FLOOR } from './domain/featured'
 import { upcomingHighlights } from './domain/upcoming'
+import { fetchNews, type NewsResult } from './services/news'
 import { ALL_TARGETS } from './useSky'
 
 /**
@@ -42,7 +43,7 @@ type Panel =
   | 'hot' | 'detail' | 'notTonight' | 'menu'
   | 'equipment' | 'sources' | 'location' | 'language'
   | 'plan' | 'imaging'
-  | 'sun' | 'tonight' | 'upcoming' | null
+  | 'sun' | 'tonight' | 'upcoming' | 'news' | null
 
 /** Re-render everything when the language changes. */
 function useLang() {
@@ -236,6 +237,7 @@ export default function App() {
       {panel === 'imaging' && <ImagingSheet sky={sky} onBack={backToSky} />}
       {panel === 'sun' && <SunSheet onBack={backToSky} />}
       {panel === 'upcoming' && <UpcomingSheet sky={sky} now={now} onBack={backToSky} />}
+      {panel === 'news' && <NewsSheet onBack={backToSky} />}
       {panel === 'tonight' && <TonightSheet sky={sky} when={when} onBack={backToSky} />}
       {panel === 'plan' && (
         <PlanSheet
@@ -478,6 +480,95 @@ function UpcomingSheet({ sky, now, onBack }: { sky: Sky; now: Date; onBack: () =
   )
 }
 
+
+/** Today, yesterday, or the date — a timestamp nobody has to decode. */
+function whenPublished(iso: string, now: Date): string {
+  const then = new Date(iso)
+  const days = Math.round(
+    (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
+      new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime()) /
+      86_400_000,
+  )
+  if (days <= 0) return t('news.today')
+  if (days === 1) return t('news.yesterday')
+  return formatDate(then)
+}
+
+/**
+ * Astronomy news.
+ *
+ * The feeds are read by the Worker, because most of them send no CORS header
+ * and a browser cannot fetch them. Every source is free with no subscription:
+ * a headline Dad taps and then cannot read would be worse than no headline.
+ *
+ * Failure is stated, not hidden. An empty list would read as "nothing has
+ * happened lately", which is a different claim from "we could not reach the
+ * feeds", so the two are never shown the same way.
+ */
+function NewsSheet({ onBack }: { onBack: () => void }) {
+  const [state, setState] = useState<'loading' | 'ok' | 'failed'>('loading')
+  const [result, setResult] = useState<NewsResult | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const now = useMemo(() => new Date(), [result])
+
+  useEffect(() => {
+    const abort = new AbortController()
+    setState('loading')
+    fetchNews(abort.signal)
+      .then((r) => {
+        setResult(r)
+        setState('ok')
+      })
+      .catch((e) => {
+        if (e?.name !== 'AbortError') setState('failed')
+      })
+    return () => abort.abort()
+  }, [attempt])
+
+  return (
+    <Sheet title={t('news.title')} onBack={onBack}>
+      {state === 'loading' && <p className="note">{t('news.loading')}</p>}
+
+      {state === 'failed' && (
+        <>
+          <p className="note warn">{t('news.unavailable')}</p>
+          <button className="backtosky" onClick={() => setAttempt((a) => a + 1)}>
+            {t('news.retry')}
+          </button>
+        </>
+      )}
+
+      {state === 'ok' && result && (
+        <>
+          <p className="note mb">{t('news.free')} {t('news.opens')}</p>
+          <hr className="hairline sp" />
+          {result.items.map((item) => (
+            <a
+              key={item.url}
+              className="row news-row"
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {item.imageUrl ? (
+                <img className="news-thumb" src={item.imageUrl} alt="" loading="lazy" decoding="async" />
+              ) : (
+                <span className="news-thumb news-thumb-none" aria-hidden="true" />
+              )}
+              <span className="row-main">
+                <span className="news-headline">{item.title}</span>
+                <span className="row-sub">
+                  {item.source} · {whenPublished(item.publishedAt, now)}
+                </span>
+              </span>
+            </a>
+          ))}
+        </>
+      )}
+    </Sheet>
+  )
+}
+
 function ConditionsLine({ sky }: { sky: Sky }) {
   const c = sky.conditions
   const label =
@@ -658,6 +749,7 @@ function MenuSheet({ onGo, onBack }: { onGo: (p: Panel) => void; onBack: () => v
   const items: [string, Panel][] = [
     [t('menu.liveSky'), null],
     [t('menu.tonight'), 'tonight'],
+    [t('menu.news'), 'news'],
     [t('menu.plan'), 'plan'],
     [t('menu.imaging'), 'imaging'],
     [t('menu.equipment'), 'equipment'],
