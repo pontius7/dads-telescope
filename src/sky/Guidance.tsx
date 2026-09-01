@@ -19,6 +19,7 @@ import * as THREE from 'three'
 import { horizonToWorld, worldToHorizon } from '../domain/frame'
 import { headingReliability, turnFromTo } from '../domain/pointing'
 import { guidance, LOCK_DEG, TELRAD_RINGS } from './guidanceState'
+import { useReducedMotion } from '../useReducedMotion'
 
 /** Distance in front of the camera. Everything else in the sky is further out. */
 const RETICLE_DIST = 20
@@ -35,7 +36,7 @@ const LOCKED = new THREE.Color('#6ee7a8')
  * Sits on a plane held in front of the camera. `depthTest` is off so it draws
  * over the sky rather than being swallowed by the star sphere behind it.
  */
-function Reticle({ colour }: { colour: THREE.Color }) {
+function Reticle({ colour, reduced }: { colour: THREE.Color; reduced: boolean }) {
   const group = useRef<THREE.Group>(null)
   const { camera } = useThree()
 
@@ -64,11 +65,13 @@ function Reticle({ colour }: { colour: THREE.Color }) {
     // A slow breath on the outer ring only, so the reticle reads as live
     // without any of it drifting off its true angle — the RINGS never change
     // size, only their opacity does.
-    const t = state.clock.elapsedTime
+    // A slow breath, unless less movement was asked for — the reticle still
+    // has to be visible then, so only the pulse goes, never the rings.
+    const pulse = reduced ? 1 : 0.82 + 0.18 * Math.sin(state.clock.elapsedTime * 1.6)
     mats.current.forEach((m, i) => {
       if (!m) return
       m.color.copy(colour)
-      m.opacity = (i === 0 ? 0.9 : i === 1 ? 0.5 : 0.32) * (0.82 + 0.18 * Math.sin(t * 1.6))
+      m.opacity = (i === 0 ? 0.9 : i === 1 ? 0.5 : 0.32) * pulse
     })
   })
 
@@ -104,7 +107,7 @@ function Reticle({ colour }: { colour: THREE.Color }) {
  * separately: those two are not a straight line on a sphere, and near the
  * zenith an azimuth-first path swings absurdly wide of the direct route.
  */
-function Trail({ target }: { target: { altDeg: number; azDeg: number } }) {
+function Trail({ target, reduced }: { target: { altDeg: number; azDeg: number }; reduced: boolean }) {
   const points = useRef<THREE.Points>(null)
   const { camera } = useThree()
 
@@ -136,8 +139,10 @@ function Trail({ target }: { target: { altDeg: number; azDeg: number } }) {
     const visible = gap > (LOCK_DEG * 4 * Math.PI) / 180
 
     const t = state.clock.elapsedTime
-    // Dots chase toward the target, faster as the gap closes.
-    const speed = 0.35 + (1 - Math.min(1, gap / Math.PI)) * 1.5
+    // Dots chase toward the target, faster as the gap closes. With reduced
+    // motion the path is drawn as a steady line: the DIRECTION is the
+    // information, and only the travelling pulse is decoration.
+    const speed = reduced ? 0 : 0.35 + (1 - Math.min(1, gap / Math.PI)) * 1.5
     const v = new THREE.Vector3()
 
     for (let i = 0; i < TRAIL_DOTS; i += 1) {
@@ -157,7 +162,7 @@ function Trail({ target }: { target: { altDeg: number; azDeg: number } }) {
       // that goes off screen when the target is a long way round, so fading
       // the NEAR end — the only part actually visible then — would leave
       // nothing to follow.
-      alphas[i] = visible ? (0.38 + 0.62 * wave) * (1 - 0.45 * f) : 0
+      alphas[i] = visible ? (reduced ? 0.7 : 0.38 + 0.62 * wave) * (1 - 0.45 * f) : 0
     }
     pos.needsUpdate = true
     alpha.needsUpdate = true
@@ -214,6 +219,7 @@ export function Guidance({
   active: boolean
 }) {
   const { camera } = useThree()
+  const reduced = useReducedMotion()
   const colour = useRef(new THREE.Color().copy(CALM))
   const dir = useRef(new THREE.Vector3())
 
@@ -250,8 +256,8 @@ export function Guidance({
 
   return (
     <>
-      <Reticle colour={colour.current} />
-      {target && <Trail target={target} />}
+      <Reticle colour={colour.current} reduced={reduced} />
+      {target && <Trail target={target} reduced={reduced} />}
     </>
   )
 }

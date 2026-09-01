@@ -22,6 +22,7 @@ import { imageFor } from '../data/imagery'
 // Shared with the sky marker, so the Moon on this card and the Moon overhead
 // are the same body with the same tilt.
 import { AXIAL_TILT, BODY_TEXTURES as TEXTURES } from './bodies'
+import { saturnRingGeometry, saturnRingTexture } from './saturnRings'
 
 
 function Globe({
@@ -74,43 +75,24 @@ function Globe({
 
 /** Saturn without rings would be a lie of omission. */
 function SaturnRings() {
-  const tex = useMemo(() => {
-    const W = 256
-    const c = document.createElement('canvas')
-    c.width = W
-    c.height = 1
-    const ctx = c.getContext('2d')!
-    // Banding roughly follows the real structure: C ring faint, B ring bright,
-    // Cassini division dark, A ring moderate.
-    const bands: [number, number, string][] = [
-      [0.0, 0.16, 'rgba(150,140,120,0.10)'],
-      [0.16, 0.30, 'rgba(190,175,150,0.42)'],
-      [0.30, 0.62, 'rgba(226,212,186,0.86)'],
-      [0.62, 0.68, 'rgba(90,84,74,0.16)'],
-      [0.68, 0.93, 'rgba(206,193,170,0.62)'],
-      [0.93, 1.0, 'rgba(150,140,120,0.10)'],
-    ]
-    for (const [a, b, colour] of bands) {
-      ctx.fillStyle = colour
-      ctx.fillRect(a * W, 0, (b - a) * W, 1)
-    }
-    const t = new THREE.CanvasTexture(c)
-    t.colorSpace = THREE.SRGBColorSpace
-    return t
-  }, [])
-
+  // Same geometry and banding as the sky marker, so the card and the sky show
+  // the same planet.
+  const rings = useMemo(
+    () => ({ texture: saturnRingTexture(), geometry: saturnRingGeometry() }),
+    [],
+  )
   return (
-    <mesh rotation={[Math.PI / 2, 0, 0]}>
-      <ringGeometry args={[1.24, 2.28, 128]} />
-      <meshBasicMaterial map={tex} side={THREE.DoubleSide} transparent depthWrite={false} />
+    <mesh rotation={[Math.PI / 2, 0, 0]} geometry={rings.geometry}>
+      <meshBasicMaterial
+        map={rings.texture}
+        side={THREE.DoubleSide}
+        transparent
+        depthWrite={false}
+      />
     </mesh>
   )
 }
 
-/**
- * A deep-sky object: its verified photograph, drifting slowly, with a parallax
- * star layer behind it. Deliberately NOT a 3D model — there isn't an honest one.
- */
 function DeepSkyCard({ url }: { url: string }) {
   const texture = useLoader(THREE.TextureLoader, url)
   const group = useRef<THREE.Group>(null)

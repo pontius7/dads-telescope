@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useLoader } from '@react-three/fiber'
 import * as THREE from 'three'
 import { AXIAL_TILT, BODY_TEXTURES } from './bodies'
+import { saturnRingGeometry, saturnRingTexture } from './saturnRings'
 
 const VERT = /* glsl */ `
   varying vec3 vWorldNormal;
@@ -43,34 +44,6 @@ const FRAG = /* glsl */ `
     gl_FragColor = vec4(surface * (uAmbient + lit) * uGain, 1.0);
   }
 `
-
-/**
- * Rings are not decoration. Saturn without them is unrecognisable, and
- * recognising it is the entire job of a marker.
- */
-function ringTexture(): THREE.CanvasTexture {
-  const W = 256
-  const c = document.createElement('canvas')
-  c.width = W
-  c.height = 1
-  const ctx = c.getContext('2d')!
-  // Roughly the real structure: C faint, B bright, Cassini dark, A moderate.
-  const bands: [number, number, string][] = [
-    [0.0, 0.16, 'rgba(150,140,120,0.10)'],
-    [0.16, 0.3, 'rgba(190,175,150,0.42)'],
-    [0.3, 0.62, 'rgba(226,212,186,0.86)'],
-    [0.62, 0.68, 'rgba(90,84,74,0.16)'],
-    [0.68, 0.93, 'rgba(206,193,170,0.62)'],
-    [0.93, 1.0, 'rgba(150,140,120,0.10)'],
-  ]
-  for (const [a, b, colour] of bands) {
-    ctx.fillStyle = colour
-    ctx.fillRect(a * W, 0, (b - a) * W, 1)
-  }
-  const t = new THREE.CanvasTexture(c)
-  t.colorSpace = THREE.SRGBColorSpace
-  return t
-}
 
 export function SkyGlobe({
   targetId, phaseAngleDeg, radius, brightness = 1,
@@ -117,7 +90,13 @@ export function SkyGlobe({
   })
 
   const tilt = ((AXIAL_TILT[targetId] ?? 0) * Math.PI) / 180
-  const rings = useMemo(() => (targetId === 'saturn' ? ringTexture() : null), [targetId])
+  const rings = useMemo(
+    () =>
+      targetId === 'saturn'
+        ? { texture: saturnRingTexture(), geometry: saturnRingGeometry() }
+        : null,
+    [targetId],
+  )
 
   return (
     <group rotation={[0, 0, tilt]} scale={radius}>
@@ -126,9 +105,13 @@ export function SkyGlobe({
         <shaderMaterial vertexShader={VERT} fragmentShader={FRAG} uniforms={uniforms} />
       </mesh>
       {rings && (
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.24, 2.28, 96]} />
-          <meshBasicMaterial map={rings} side={THREE.DoubleSide} transparent depthWrite={false} />
+        <mesh rotation={[Math.PI / 2, 0, 0]} geometry={rings.geometry}>
+          <meshBasicMaterial
+            map={rings.texture}
+            side={THREE.DoubleSide}
+            transparent
+            depthWrite={false}
+          />
         </mesh>
       )}
     </group>

@@ -16,6 +16,8 @@ import { horizonToWorld } from '../domain/frame'
 import { deviceToAim, type DevicePose } from '../domain/pointing'
 import { daylightPhase, skyPalette, starVisibility } from '../domain/daylight'
 import { Guidance } from './Guidance'
+import { useReducedMotion } from '../useReducedMotion'
+import { applyZoomNudge, clampFov } from './zoom'
 import { Body, Illumination, MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
 import { badgeTexture, discTexture, ringTexture } from './markerTexture'
 import { hasThumb, loadThumb, peekThumb } from './thumbs'
@@ -54,7 +56,15 @@ export function altAzToVec3(altDeg: number, azDeg: number, r = 100): THREE.Vecto
  * reads as a glowing star rather than a faceted ball, and 4000+ of them cost
  * one draw call instead of thousands of triangles.
  */
-function Stars({ loc, when, explore, visible }: { loc: GeoLocation; when: Date; explore: boolean; visible: number }) {
+function Stars({
+  loc, when, explore, visible, reduced,
+}: {
+  loc: GeoLocation
+  when: Date
+  explore: boolean
+  visible: number
+  reduced: boolean
+}) {
   const seeds = useMemo(() => buildStarField(4200), [])
 
   const { positions, colors, sizes, twinkle, phase } = useMemo(() => {
@@ -103,6 +113,27 @@ function Stars({ loc, when, explore, visible }: { loc: GeoLocation; when: Date; 
   const texture = useMemo(() => glowTexture(), [])
   const matRef = useRef<THREE.ShaderMaterial>(null)
 
+  /**
+   * Built once, not rebuilt on every render — an inline uniforms object made a
+   * new material each time and reset the fade with it.
+   *
+   * It starts at zero so the star field DAWNS on first load, the way eyes
+   * adjust when you step outside. It is the one piece of theatre in the app,
+   * it lasts about a second and a half, and it happens once. Anyone who has
+   * asked for reduced motion gets the sky already adapted.
+   */
+  const uniforms = useMemo(
+    () => ({
+      map: { value: texture },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+      uScale: { value: 3.1 },
+      uTime: { value: 0 },
+      uVisible: { value: reduced ? visible : 0 },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [texture],
+  )
+
   // Drive the twinkle. One uniform update per frame, not a React re-render.
   useFrame((state) => {
     if (!matRef.current) return
@@ -110,7 +141,8 @@ function Stars({ loc, when, explore, visible }: { loc: GeoLocation; when: Date; 
     // Eased rather than set, so scrubbing the clock through sunset dissolves
     // the star field instead of snapping it on.
     const u = matRef.current.uniforms.uVisible!
-    u.value += (visible - u.value) * 0.08
+    if (reduced) u.value = visible
+    else u.value += (visible - u.value) * 0.045
   })
 
   return (
@@ -128,13 +160,7 @@ function Stars({ loc, when, explore, visible }: { loc: GeoLocation; when: Date; 
         vertexColors
         depthWrite={false}
         blending={THREE.AdditiveBlending}
-        uniforms={{
-          map: { value: texture },
-          uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
-          uScale: { value: 3.1 },
-          uTime: { value: 0 },
-          uVisible: { value: visible },
-        }}
+        uniforms={uniforms}
         vertexShader={STAR_VERT}
         fragmentShader={STAR_FRAG}
       />
@@ -518,7 +544,17 @@ function labelTexture(text: string): THREE.CanvasTexture {
  * than computed, and they are drawn as transient streaks, never labelled or
  * clickable, so nothing about them can be mistaken for data.
  */
-function Meteors() {
+/**
+ * Meteors are pure atmosphere: nothing depends on them and nothing is lost
+ * without them, so a request for less movement removes them outright rather
+ * than slowing them down.
+ */
+function Meteors({ reduced }: { reduced: boolean }) {
+  if (reduced) return null
+  return <MeteorShower />
+}
+
+function MeteorShower() {
   const ref = useRef<THREE.LineSegments>(null)
   const state = useRef({ next: 2.5, active: [] as { t: number; life: number; a: THREE.Vector3; b: THREE.Vector3 }[] })
 
@@ -686,7 +722,7 @@ function SunDisc({
  *   photograph of this object exists, and the app will not invent one.
  */
 function Marker({
-  target, loc, when, selected, onSelect, explore,
+  target, loc, when, selected, onSelect, explore, reduced,
 }: {
   target: ScoredTarget
   loc: GeoLocation
@@ -694,6 +730,7 @@ function Marker({
   selected: boolean
   onSelect: (id: string) => void
   explore: boolean
+  reduced: boolean
 }) {
   const t = target.target
   const id = t.id
@@ -753,6 +790,11 @@ function Marker({
       selected={selected}
       texture={texture}
       size={size}
+      reduced={reduced}
+      // Markers arrive in the order the sky reads, brightest first, rather
+      // than all landing on the same frame. Derived from the score so it is
+      // stable across renders — a random delay would reshuffle on every tick.
+      delay={reduced ? 0 : Math.min(0.5, (100 - score) * 0.012)}
       onSelect={() => onSelect(id)}
       globe={
         isBody ? (
@@ -776,7 +818,7 @@ function Marker({
  * something completely static reads as a screenshot rather than a live sky.
  */
 function AnimatedMarker({
-  position, selected, texture, size, onSelect, globe,
+  position, selected, texture, size, onSelect, globe, reduced, delay,
 }: {
   position: THREE.Vector3
   selected: boolean
@@ -784,19 +826,34 @@ function AnimatedMarker({
   size: number
   onSelect: () => void
   globe: React.ReactNode
+  reduced: boolean
+  delay: number
 }) {
   const ref = useRef<THREE.Sprite>(null)
   const group = useRef<THREE.Group>(null)
   const born = useRef(0)
 
+  const waited = useRef(0)
+
   useFrame((state, dt) => {
-    born.current = Math.min(1, born.current + dt * 2.6)
+    if (reduced) {
+      born.current = 1
+    } else {
+      // Hold for the stagger, then ease in.
+      waited.current += dt
+      if (waited.current >= delay) born.current = Math.min(1, born.current + dt * 2.6)
+    }
     // Ease-out entry, so markers arrive rather than appear.
     const entry = 1 - Math.pow(1 - born.current, 3)
     const time = state.clock.elapsedTime
-    const breathe = selected
-      ? 1 + Math.sin(time * 2.4) * 0.06
-      : 1 + Math.sin(time * 1.1 + position.x) * 0.022
+    // The breath is the only looping motion left on a marker, and it is what
+    // keeps the sky from reading as a screenshot. Anyone who asked for less
+    // movement gets a still one.
+    const breathe = reduced
+      ? 1
+      : selected
+        ? 1 + Math.sin(time * 2.4) * 0.06
+        : 1 + Math.sin(time * 1.1 + position.x) * 0.022
 
     if (ref.current) {
       const k = size * entry * breathe
@@ -841,8 +898,9 @@ function AnimatedMarker({
  * the fly-to needs to interpolate the same state the gestures write.
  */
 function CameraRig({
-  flyTo, zoomNudge, initialView, explore, pose, fovOut,
+  flyTo, zoomNudge, initialView, explore, pose, fovOut, reduced,
 }: {
+  reduced: boolean
   fovOut?: React.RefObject<number>
   flyTo: { altDeg: number; azDeg: number } | null
   zoomNudge: number
@@ -863,6 +921,8 @@ function CameraRig({
     /** Only the sensor writes this: the sky leans when the phone leans. */
     roll: 0,
   })
+  /** Where the zoom is heading. Gestures write it and the current fov together. */
+  const fovTarget = useRef(64)
   const target = useRef<{ az: number; alt: number } | null>(null)
   const drag = useRef<{ x: number; y: number } | null>(null)
   const pinch = useRef<number | null>(null)
@@ -875,8 +935,24 @@ function CameraRig({
     if (flyTo) target.current = { az: flyTo.azDeg, alt: flyTo.altDeg }
   }, [flyTo])
 
+  /**
+   * The zoom buttons.
+   *
+   * `zoomNudge` is a running total, not a step, and this used to add the whole
+   * total to the field of view on every change — so the first tap moved 6
+   * degrees, the second 12, the third 18, accelerating away. Taking the
+   * DIFFERENCE since the last change makes every tap the same size.
+   *
+   * The result is a target, eased toward in the frame loop rather than applied
+   * at once. A button press is a frequent action, so the move is quick — but
+   * a camera that teleports gives no sense of having moved, and losing your
+   * place in the sky is the one thing this control must not do.
+   */
+  const lastNudge = useRef(0)
   useEffect(() => {
-    state.current.fov = clamp(state.current.fov + zoomNudge, 18, 78)
+    const next = applyZoomNudge(fovTarget.current, lastNudge.current, zoomNudge)
+    fovTarget.current = next.fovTarget
+    lastNudge.current = next.total
   }, [zoomNudge])
 
   useEffect(() => {
@@ -901,7 +977,11 @@ function CameraRig({
     }
     const wheel = (e: WheelEvent) => {
       e.preventDefault()
-      state.current.fov = clamp(state.current.fov + e.deltaY * 0.05, 18, 78)
+      // Direct manipulation is never eased: a wheel or a pinch must track the
+      // hand exactly, or it feels like lag rather than polish. Only the
+      // buttons, which are a discrete request rather than a drag, glide.
+      state.current.fov = clampFov(state.current.fov + e.deltaY * 0.05)
+      fovTarget.current = state.current.fov
     }
     const touchMove = (e: TouchEvent) => {
       if (e.touches.length !== 2) return
@@ -910,7 +990,8 @@ function CameraRig({
         e.touches[0]!.clientY - e.touches[1]!.clientY,
       )
       if (pinch.current !== null) {
-        state.current.fov = clamp(state.current.fov * (pinch.current / d), 18, 78)
+        state.current.fov = clampFov(state.current.fov * (pinch.current / d))
+        fovTarget.current = state.current.fov
       }
       pinch.current = d
     }
@@ -968,12 +1049,24 @@ function CameraRig({
       const lift = Math.min(12, wantFov * 0.3)
       s.az = wrap360(s.az + shortestAngle(s.az, target.current.az) * k)
       s.alt += (target.current.alt - lift - s.alt) * k
-      s.fov += (wantFov - s.fov) * k
+      // Hand the zoom to the same target the buttons use, so a fly-to and a
+      // tap on the zoom control cannot pull the field of view two ways.
+      fovTarget.current = wantFov
       if (Math.abs(shortestAngle(s.az, target.current.az)) < 0.25) target.current = null
     }
+    // One place eases the field of view, whatever asked for the change.
+    // Reduced motion takes the answer immediately: the destination is the
+    // point, and the journey is exactly what was opted out of.
+    if (reduced) {
+      s.fov = fovTarget.current
+    } else if (Math.abs(fovTarget.current - s.fov) > 0.01) {
+      s.fov += (fovTarget.current - s.fov) * (1 - Math.exp(-dt * 9))
+    }
+
     // Idle drift: a very slow pan when nothing else is driving the camera, so
-    // the scene is never completely frozen. Cancelled by any interaction.
-    if (!target.current && !sensor && !drag.current) {
+    // the scene is never completely frozen. Cancelled by any interaction, and
+    // by anyone who has asked the system for less movement.
+    if (!target.current && !sensor && !drag.current && !reduced) {
       s.az = wrap360(s.az + dt * 0.35)
     }
 
@@ -1020,6 +1113,7 @@ export function SkyScene({
 }) {
   const [dpr, setDpr] = useState(1.5)
   const fovRef = useRef(64)
+  const reduced = useReducedMotion()
 
   /**
    * The sky is drawn for the time being shown. Rendering a black, star-filled
@@ -1059,7 +1153,7 @@ export function SkyScene({
       {showFigures && daylight.stars > 0.15 && (
         <Figures loc={loc} when={when} fovRef={fovRef} visible={daylight.stars} />
       )}
-      <Stars loc={loc} when={when} explore={explore} visible={daylight.stars} />
+      <Stars loc={loc} when={when} explore={explore} visible={daylight.stars} reduced={reduced} />
       <SunDisc loc={loc} when={when} onWarn={() => onSunWarning?.()} />
       <Horizon explore={explore} />
       <Cardinals />
@@ -1067,6 +1161,7 @@ export function SkyScene({
         <Marker
           key={t.target.id}
           target={t}
+          reduced={reduced}
           loc={loc}
           when={when}
           selected={t.target.id === selectedId}
@@ -1074,7 +1169,7 @@ export function SkyScene({
           explore={explore}
         />
       ))}
-      <Meteors />
+      <Meteors reduced={reduced} />
       <EffectComposer>
         {/* Bloom is what turns bright points into something that reads as
             LIGHT rather than as dots. Threshold kept high so only genuinely
@@ -1089,6 +1184,7 @@ export function SkyScene({
         explore={explore}
         pose={pose}
         fovOut={fovRef}
+        reduced={reduced}
       />
       {accuracy && (
         <Guidance
