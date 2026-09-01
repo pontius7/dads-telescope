@@ -114,6 +114,21 @@ const en = {
   'sensor.unsupported': 'This device does not report its orientation.',
   'sensor.denied': 'Motion access was declined. Touch controls still work.',
   'sensor.note': 'Hold the phone up and turn — the view follows.',
+  'menu.night': 'Night vision & screen',
+  'night.title': 'Night vision & screen',
+  'night.red': 'Red screen',
+  'night.redWhy':
+    'White light bleaches the eye. It takes up to 40 minutes to get your night vision back after a bright screen, so everything turns red and dim while you observe.',
+  'night.redLimit':
+    'A red screen helps, it does not fix it. A sheet of red film taped over the phone works better, because it covers everything and not just this app.',
+  'night.awake': 'Keep screen on',
+  'night.awakeWhy': 'So the phone does not lock while both hands are on the telescope.',
+  'night.on': 'On',
+  'night.off': 'Off',
+  'night.unsupported': 'Not on this phone',
+  'night.failed': 'Refused by the phone',
+  'night.awakeNote':
+    'Needs iOS 16.4 or later — and iOS 18.4 if you added this to the Home Screen. It turns itself off whenever you leave the app.',
   'menu.news': 'News',
   'news.title': 'Astronomy news',
   'news.loading': 'Fetching the latest…',
@@ -332,6 +347,21 @@ const me: Record<StringKey, unknown> = {
   'sensor.enable': 'Uperi u nebo',
   'sensor.exit': 'Prekini uperavanje',
   'sensor.unsupported': 'Ovaj uređaj ne javlja svoj položaj.',
+  'menu.night': 'Noćni vid i ekran',
+  'night.title': 'Noćni vid i ekran',
+  'night.red': 'Crveni ekran',
+  'night.redWhy':
+    'Bijela svjetlost zasljepljuje oko. Poslije svijetlog ekrana treba i do 40 minuta da ti se vid vrati na tamu, pa sve postaje crveno i prigušeno dok posmatraš.',
+  'night.redLimit':
+    'Crveni ekran pomaže, ali ne rješava sve. Crvena folija zalijepljena preko telefona radi bolje, jer pokriva sve, a ne samo ovu aplikaciju.',
+  'night.awake': 'Drži ekran upaljen',
+  'night.awakeWhy': 'Da se telefon ne zaključa dok su ti obje ruke na durbinu.',
+  'night.on': 'Uključeno',
+  'night.off': 'Isključeno',
+  'night.unsupported': 'Ne radi na ovom telefonu',
+  'night.failed': 'Telefon je odbio',
+  'night.awakeNote':
+    'Treba iOS 16.4 ili noviji — i iOS 18.4 ako si dodao ovo na početni ekran. Sam se gasi kad izađeš iz aplikacije.',
   'menu.news': 'Vijesti',
   'news.title': 'Astronomske vijesti',
   'news.loading': 'Učitavam najnovije…',

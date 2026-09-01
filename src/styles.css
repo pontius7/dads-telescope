@@ -721,3 +721,78 @@ body {
 }
 /* No picture in the feed: hold the space so the headlines stay aligned. */
 .news-thumb-none { background: rgba(255, 255, 255, 0.03); }
+
+/* ---------------------------------------------------------------------------
+   Night vision.
+
+   A red film over the whole app, WebGL canvas included — which is what an
+   observer would physically tape over the screen, and the reason this is a
+   blend layer rather than a set of red colour tokens. Tokens would only reach
+   the DOM; the sky is a canvas and would have gone on bleaching his eyes.
+
+   `multiply` against red keeps the red channel and zeroes green and blue, so
+   what survives is luminance in red. The colour coding of the scores goes with
+   it — which is exactly why the number was always doing the work and the
+   colour only ever reinforced it.
+
+   It is honest about its limits: a phone screen in red is still brighter than
+   no phone at all. The setting screen says so.
+   --------------------------------------------------------------------------- */
+.nightshade {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  /* Not pure red: this darkens as it tints, which is half the benefit. */
+  background: rgb(196, 0, 0);
+  mix-blend-mode: multiply;
+  opacity: 0;
+  transition: opacity 420ms var(--ease);
+}
+.nightshade[data-on='true'] { opacity: 1; }
+
+/* A second, plain dimmer. Screens are backlit and multiply alone cannot take
+   a bright white panel below what a dark-adapted eye finds comfortable. */
+.nightshade-dim {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: #000;
+  opacity: 0;
+  transition: opacity 420ms var(--ease);
+}
+.nightshade-dim[data-on='true'] { opacity: 0.25; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nightshade,
+  .nightshade-dim { transition: none; }
+}
+
+/* Multiplying by red keeps only the red channel, so a colour's readability
+   under the film is decided entirely by how much red it had. `--muted` is a
+   cool grey and loses most of itself; lifted here so the type hierarchy
+   survives the filter instead of collapsing into one dim red. */
+:root[data-night='true'] {
+  --muted: #c4a0a0;
+  --faint: #8e6a6a;
+  --line: rgba(255, 210, 210, 0.14);
+  --line-strong: rgba(255, 210, 210, 0.26);
+}
+
+/* A switch that reads as a switch without a toggle widget: the row states what
+   it does, the value says whether it is on. */
+.setting-v {
+  flex: 0 0 auto;
+  margin-left: 12px;
+  font-size: var(--t-value);
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.setting-v[data-on='true'] { color: var(--good); }
+.setting-v[data-warn='true'] { color: var(--fair); }
+
+/* A setting the phone cannot provide is shown, not hidden — but it must not
+   look tappable when tapping it would do nothing. */
+.row:disabled { opacity: 0.55; cursor: default; }
+.row:disabled:hover { background: none; }

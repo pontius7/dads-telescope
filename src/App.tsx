@@ -27,6 +27,10 @@ import { hasThumb } from './sky/thumbs'
 import { SHOWPIECE_FLOOR } from './domain/featured'
 import { upcomingHighlights } from './domain/upcoming'
 import { fetchNews, type NewsResult } from './services/news'
+import { useWakeLock, type WakeLockState } from './useWakeLock'
+import {
+  loadNightSettings, saveNightSettings, type NightSettings,
+} from './nightSettings'
 import { ALL_TARGETS } from './useSky'
 
 /**
@@ -43,7 +47,7 @@ type Panel =
   | 'hot' | 'detail' | 'notTonight' | 'menu'
   | 'equipment' | 'sources' | 'location' | 'language'
   | 'plan' | 'imaging'
-  | 'sun' | 'tonight' | 'upcoming' | 'news' | null
+  | 'sun' | 'tonight' | 'upcoming' | 'news' | 'night' | null
 
 /** Re-render everything when the language changes. */
 function useLang() {
@@ -69,6 +73,18 @@ export default function App() {
   const [zoomNudge, setZoomNudge] = useState(0)
   const [explore, setExplore] = useState(false)
   const [exploreTime, setExploreTime] = useState<Date | null>(null)
+
+  const [night, setNight] = useState<NightSettings>(loadNightSettings)
+  const wakeLock = useWakeLock(night.keepAwake)
+  const changeNight = (next: NightSettings) => {
+    setNight(next)
+    saveNightSettings(next)
+  }
+  useEffect(() => {
+    // The film is a blend layer and cannot change what it is blending. Marking
+    // the root lets the palette compensate for what red multiply removes.
+    document.documentElement.dataset.night = String(night.nightVision)
+  }, [night.nightVision])
 
   const orient = useOrientation()
   const sensorOn = orient.state === 'granted'
@@ -238,6 +254,19 @@ export default function App() {
       {panel === 'sun' && <SunSheet onBack={backToSky} />}
       {panel === 'upcoming' && <UpcomingSheet sky={sky} now={now} onBack={backToSky} />}
       {panel === 'news' && <NewsSheet onBack={backToSky} />}
+      {panel === 'night' && (
+        <NightSheet
+          settings={night}
+          onChange={changeNight}
+          wakeLock={wakeLock}
+          onBack={backToSky}
+        />
+      )}
+
+      {/* Last in the tree and highest in the stack: the film goes over
+          everything, the sky included. */}
+      <div className="nightshade-dim" data-on={night.nightVision} aria-hidden="true" />
+      <div className="nightshade" data-on={night.nightVision} aria-hidden="true" />
       {panel === 'tonight' && <TonightSheet sky={sky} when={when} onBack={backToSky} />}
       {panel === 'plan' && (
         <PlanSheet
@@ -569,6 +598,74 @@ function NewsSheet({ onBack }: { onBack: () => void }) {
   )
 }
 
+
+/**
+ * Night vision and the screen lock.
+ *
+ * Two settings that decide whether the app helps or hinders at the eyepiece.
+ * Both state their limits plainly: a red screen is better than a white one but
+ * worse than red film, and the wake lock depends on an iOS version the app
+ * cannot control. Saying so here is cheaper than him finding out in a field.
+ */
+function NightSheet({
+  settings, onChange, wakeLock, onBack,
+}: {
+  settings: NightSettings
+  onChange: (next: NightSettings) => void
+  wakeLock: WakeLockState
+  onBack: () => void
+}) {
+  const awakeValue =
+    wakeLock === 'unsupported'
+      ? t('night.unsupported')
+      : wakeLock === 'failed'
+        ? t('night.failed')
+        : settings.keepAwake
+          ? t('night.on')
+          : t('night.off')
+
+  return (
+    <Sheet title={t('night.title')} onBack={onBack}>
+      <button
+        className="row"
+        aria-pressed={settings.nightVision}
+        onClick={() => onChange({ ...settings, nightVision: !settings.nightVision })}
+      >
+        <span className="row-main">
+          <span className="row-name">{t('night.red')}</span>
+          <span className="row-sub wrap">{t('night.redWhy')}</span>
+        </span>
+        <span className="setting-v" data-on={settings.nightVision}>
+          {settings.nightVision ? t('night.on') : t('night.off')}
+        </span>
+      </button>
+      <p className="note">{t('night.redLimit')}</p>
+
+      <hr className="hairline sp" />
+
+      <button
+        className="row"
+        aria-pressed={settings.keepAwake && wakeLock === 'on'}
+        disabled={wakeLock === 'unsupported'}
+        onClick={() => onChange({ ...settings, keepAwake: !settings.keepAwake })}
+      >
+        <span className="row-main">
+          <span className="row-name">{t('night.awake')}</span>
+          <span className="row-sub wrap">{t('night.awakeWhy')}</span>
+        </span>
+        <span
+          className="setting-v"
+          data-on={wakeLock === 'on'}
+          data-warn={wakeLock === 'unsupported' || wakeLock === 'failed'}
+        >
+          {awakeValue}
+        </span>
+      </button>
+      <p className="note">{t('night.awakeNote')}</p>
+    </Sheet>
+  )
+}
+
 function ConditionsLine({ sky }: { sky: Sky }) {
   const c = sky.conditions
   const label =
@@ -750,6 +847,7 @@ function MenuSheet({ onGo, onBack }: { onGo: (p: Panel) => void; onBack: () => v
     [t('menu.liveSky'), null],
     [t('menu.tonight'), 'tonight'],
     [t('menu.news'), 'news'],
+    [t('menu.night'), 'night'],
     [t('menu.plan'), 'plan'],
     [t('menu.imaging'), 'imaging'],
     [t('menu.equipment'), 'equipment'],
