@@ -342,6 +342,21 @@ export function scoreTarget(args: {
 
   // --- sample the whole window ------------------------------------------
   const times = sampleTimes(window)
+
+  /**
+   * Narrow the forecast to this window ONCE, rather than scanning the whole
+   * feed for every time bucket of every target. The feed is sixteen days long
+   * so the Upcoming screen has real weather to work with, and rescanning all
+   * of it per bucket was quadratic in the length of a forecast that only ever
+   * gets longer.
+   */
+  const nearby = args.weather
+    ? args.weather.filter(
+        (s) =>
+          s.time.getTime() >= window.start.getTime() - 2 * 3600_000 &&
+          s.time.getTime() <= window.end.getTime() + 2 * 3600_000,
+      )
+    : null
   const samples: Sample[] = times.map((t) => {
     const pos = isDeepSky
       ? fixedHorizontal(target.raHoursJ2000, target.decDegJ2000, t, loc, 'normal')
@@ -352,7 +367,7 @@ export function scoreTarget(args: {
     const sep = isDeepSky
       ? angularSeparationDeg(target.raHoursJ2000, target.decDegJ2000, moon.raHours, moon.decDeg)
       : separationFromBody(target.body, t, loc)
-    const w = args.weather ? nearestWeather(args.weather, t) : null
+    const w = nearby && nearby.length > 0 ? nearestWeather(nearby, t) : null
     return {
       time: t,
       altitudeDeg: pos.altitudeDeg,

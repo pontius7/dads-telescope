@@ -25,13 +25,24 @@ import { useOrientation } from './useOrientation'
 import { PointingHUD } from './PointingHUD'
 import { hasThumb } from './sky/thumbs'
 import { SHOWPIECE_FLOOR } from './domain/featured'
+import { upcomingHighlights } from './domain/upcoming'
+import { ALL_TARGETS } from './useSky'
+
+/**
+ * What the month-ahead scan looks at. The whole catalogue is not worth a
+ * thirty-night sweep — this screen exists to surface things worth planning
+ * around, and the faint remainder would only ever be noise a month out.
+ */
+const UPCOMING_CANDIDATES = ALL_TARGETS.filter(
+  (t) => t.type === 'solar-system' || t.popularity >= 0.6,
+)
 import { t, renderNote, setLang, getLang, subscribe, LANGUAGES, type StringKey } from './i18n'
 
 type Panel =
   | 'hot' | 'detail' | 'notTonight' | 'menu'
   | 'equipment' | 'sources' | 'location' | 'language'
   | 'plan' | 'imaging'
-  | 'sun' | 'tonight' | null
+  | 'sun' | 'tonight' | 'upcoming' | null
 
 /** Re-render everything when the language changes. */
 function useLang() {
@@ -224,6 +235,7 @@ export default function App() {
       {panel === 'language' && <LanguageSheet onBack={backToSky} />}
       {panel === 'imaging' && <ImagingSheet sky={sky} onBack={backToSky} />}
       {panel === 'sun' && <SunSheet onBack={backToSky} />}
+      {panel === 'upcoming' && <UpcomingSheet sky={sky} now={now} onBack={backToSky} />}
       {panel === 'tonight' && <TonightSheet sky={sky} when={when} onBack={backToSky} />}
       {panel === 'plan' && (
         <PlanSheet
@@ -399,6 +411,73 @@ function SunSheet({ onBack }: { onBack: () => void }) {
   )
 }
 
+
+/**
+ * The month ahead.
+ *
+ * Computed on open rather than with the rest of the sky: it is a month of
+ * nights against the showpiece catalogue, and nobody needs it until they ask
+ * for it.
+ *
+ * The screen is careful about one thing. The positions and timings are exact
+ * for the whole month, because orbits are; the weather is only real as far as
+ * a forecast reaches. Every row says which it got, so a night three weeks out
+ * is never mistaken for a night somebody has actually forecast.
+ */
+function UpcomingSheet({ sky, now, onBack }: { sky: Sky; now: Date; onBack: () => void }) {
+  const picks = useMemo(
+    () =>
+      upcomingHighlights({
+        from: now,
+        nights: 30,
+        loc: sky.loc,
+        targets: UPCOMING_CANDIDATES,
+        weather: sky.weather?.samples ?? null,
+        limit: 12,
+      }),
+    [now, sky.loc, sky.weather],
+  )
+
+  return (
+    <Sheet title={t('upcoming.title')} onBack={onBack}>
+      <p className="note mb">{t('upcoming.intro')}</p>
+      <hr className="hairline sp" />
+      {picks.length === 0 && <p className="note">{t('upcoming.empty')}</p>}
+      {picks.map((p) => {
+        const target = TARGETS_BY_ID.get(p.targetId)
+        if (!target) return null
+        const name = ('commonName' in target && target.commonName) || target.name
+        return (
+          <div className="row static" key={p.targetId}>
+            {hasThumb(p.targetId) ? (
+              <img className="row-thumb" src={`/thumbs/${p.targetId}.webp`} alt="" loading="lazy" />
+            ) : (
+              <span className="row-thumb row-thumb-none" aria-hidden="true" />
+            )}
+            <span className="row-main">
+              <span className="row-name">{name}</span>
+              <span className="row-sub wrap">
+                {formatDate(p.night)} · {formatTime(p.bestTime)} ·{' '}
+                {Math.round(p.peakAltitudeDeg)}° {compass(p.peakAzimuthDeg)}
+              </span>
+              <span className="row-sub wrap">
+                {t('upcoming.usable', p.minutesUseful)} · {t('upcoming.moon', p.moonIlluminatedPct)}
+                {' · '}
+                {p.forecast === 'included' && p.cloudCoverPct !== null ? (
+                  t('upcoming.cloud', p.cloudCoverPct)
+                ) : (
+                  <em className="muted">{t('upcoming.noForecast')}</em>
+                )}
+              </span>
+            </span>
+            <Ring score={p.score} />
+          </div>
+        )
+      })}
+    </Sheet>
+  )
+}
+
 function ConditionsLine({ sky }: { sky: Sky }) {
   const c = sky.conditions
   const label =
@@ -447,6 +526,11 @@ function HotSheet({ sky, onSelect, onOpen }: { sky: Sky; onSelect: (id: string) 
           </span>
         </button>
       )}
+      <button className="row" onClick={() => onOpen('upcoming')}>
+        <span className="row-main">
+          <span className="row-name muted">{t('upcoming.open')} ›</span>
+        </span>
+      </button>
     </Sheet>
   )
 }

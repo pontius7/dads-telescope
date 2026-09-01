@@ -50,7 +50,14 @@ async function fetchOpenMeteo(loc: GeoLocation, signal?: AbortSignal): Promise<W
     'hourly',
     'cloud_cover,visibility,relative_humidity_2m,dew_point_2m,wind_speed_10m,temperature_2m',
   )
-  url.searchParams.set('forecast_days', '2')
+  /**
+   * Sixteen days is Open-Meteo's maximum, and the maximum is the honest
+   * request: the Upcoming screen looks a month ahead, so the further the real
+   * forecast reaches, the fewer nights it has to mark as unforecast. Beyond
+   * sixteen days no provider has an answer, and the app says so rather than
+   * filling the gap.
+   */
+  url.searchParams.set('forecast_days', '16')
   url.searchParams.set('timezone', 'UTC')
 
   const res = await fetch(url, { signal })

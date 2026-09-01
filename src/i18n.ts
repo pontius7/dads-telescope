@@ -114,6 +114,16 @@ const en = {
   'sensor.unsupported': 'This device does not report its orientation.',
   'sensor.denied': 'Motion access was declined. Touch controls still work.',
   'sensor.note': 'Hold the phone up and turn — the view follows.',
+  'upcoming.open': 'Best nights this month',
+  'upcoming.title': 'The month ahead',
+  'upcoming.intro':
+    'Positions and timings are exact for the whole month. Weather forecasts only reach about two weeks — nights past that are scored without cloud, and say so.',
+  'upcoming.noForecast': 'No forecast yet',
+  'upcoming.moon': (n: number) => `Moon ${n}%`,
+  'upcoming.cloud': (n: number) => `Cloud ${n}%`,
+  'upcoming.usable': (n: number) =>
+    n >= 60 ? `${Math.floor(n / 60)}h ${String(n % 60).padStart(2, '0')}m` : `${n} min`,
+  'upcoming.empty': 'Nothing clears the horizon in the next month from here.',
   'sun.title': 'The Sun',
   'sun.never': 'Never point the telescope at the Sun.',
   'sun.why':
@@ -313,6 +323,16 @@ const me: Record<StringKey, unknown> = {
   'sensor.enable': 'Uperi u nebo',
   'sensor.exit': 'Prekini uperavanje',
   'sensor.unsupported': 'Ovaj uređaj ne javlja svoj položaj.',
+  'upcoming.open': 'Najbolje noći ovog mjeseca',
+  'upcoming.title': 'Mjesec pred nama',
+  'upcoming.intro':
+    'Položaji i vremena su tačni za cijeli mjesec. Prognoza dopire samo oko dvije nedjelje — noći poslije toga ocijenjene su bez oblaka, i to tako piše.',
+  'upcoming.noForecast': 'Još nema prognoze',
+  'upcoming.moon': (n: number) => `Mjesec ${n}%`,
+  'upcoming.cloud': (n: number) => `Oblaci ${n}%`,
+  'upcoming.usable': (n: number) =>
+    n >= 60 ? `${Math.floor(n / 60)}h ${String(n % 60).padStart(2, '0')}m` : `${n} min`,
+  'upcoming.empty': 'Ništa se ne diže iznad horizonta u narednih mjesec dana odavde.',
   'sun.title': 'Sunce',
   'sun.never': 'Nikad ne upiraj durbin u Sunce.',
   'sun.why':
