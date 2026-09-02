@@ -218,7 +218,9 @@ body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;   /* scrolling the sheet must not scroll the page */
-  padding: 0 18px 18px;
+  /* The sheet reaches the bottom of the screen, so the last row needs to clear
+     the home indicator — without this it scrolled under it and read as cut off. */
+  padding: 0 18px calc(var(--safe-b) + 28px);
   transition: opacity 200ms var(--ease);
 }
 
@@ -1009,4 +1011,28 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .menurow { animation: none; }
   .dockbtn, .searchinput, .searchbtn, .logbtn, .row-go { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   An open sheet owns the screen.
+
+   The sky dock and the time pill are controls for the SKY, and while a sheet
+   is open there is no sky to control — but they were still floating over the
+   list, covering rows and stealing the taps meant for them. `:has()` lets the
+   controls react to the sheet without threading state through every panel.
+   --------------------------------------------------------------------------- */
+.skydock,
+.timepill-wrap {
+  transition: opacity 220ms var(--ease), transform 220ms var(--ease);
+}
+body:has(.sheet:not(.collapsed)) .skydock,
+body:has(.sheet:not(.collapsed)) .timepill-wrap {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skydock,
+  .timepill-wrap { transition: none; }
 }
