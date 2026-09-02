@@ -18,6 +18,7 @@ import { daylightPhase, skyPalette, starVisibility } from '../domain/daylight'
 import { Guidance } from './Guidance'
 import { useReducedMotion } from '../useReducedMotion'
 import { applyZoomNudge, clampFov } from './zoom'
+import { ConstellationArt, hasFigure } from './ConstellationArt'
 import { Body, Illumination, MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
 import { badgeTexture, discTexture, ringTexture } from './markerTexture'
 import { hasThumb, loadThumb, peekThumb } from './thumbs'
@@ -404,7 +405,15 @@ function Horizon({ explore }: { explore: boolean }) {
  *              you have flown in on one object you are no longer navigating,
  *              and the lines would sit on top of the thing you came to see.
  */
-function Figures({ loc, when, fovRef, visible }: { loc: GeoLocation; when: Date; fovRef: React.RefObject<number>; visible: number }) {
+function Figures({
+  loc, when, fovRef, visible, onReveal,
+}: {
+  loc: GeoLocation
+  when: Date
+  fovRef: React.RefObject<number>
+  visible: number
+  onReveal: (name: string) => void
+}) {
   const lineRef = useRef<THREE.LineSegments>(null)
   const groupRef = useRef<THREE.Group>(null)
 
@@ -495,9 +504,27 @@ function Figures({ loc, when, fovRef, visible }: { loc: GeoLocation; when: Date;
         const aspect = labelAspect.get(text) ?? 4
         const h = 3.4
         return (
-          <sprite key={l.name} position={[l.pos.x, l.pos.y, l.pos.z]} scale={[h * aspect, h, 1]}>
-            <spriteMaterial map={map} transparent opacity={0.46} depthTest={false} />
-          </sprite>
+          <group key={l.name}>
+            {/* An invisible disc over the figure, so the constellation can be
+                tapped anywhere inside it rather than only on a hairline. It
+                sits further out than the markers, so a target on top of a
+                constellation still wins the tap. */}
+            {hasFigure(l.name) && (
+              <sprite
+                position={[l.pos.x * 1.05, l.pos.y * 1.05, l.pos.z * 1.05]}
+                scale={[22, 22, 1]}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onReveal(l.name)
+                }}
+              >
+                <spriteMaterial transparent opacity={0} depthTest={false} depthWrite={false} />
+              </sprite>
+            )}
+            <sprite position={[l.pos.x, l.pos.y, l.pos.z]} scale={[h * aspect, h, 1]}>
+              <spriteMaterial map={map} transparent opacity={0.46} depthTest={false} />
+            </sprite>
+          </group>
         )
       })}
     </group>
@@ -1114,6 +1141,8 @@ export function SkyScene({
   const [dpr, setDpr] = useState(1.5)
   const fovRef = useRef(64)
   const reduced = useReducedMotion()
+  /** The constellation whose figure is currently rising and fading. */
+  const [revealed, setRevealed] = useState<string | null>(null)
 
   /**
    * The sky is drawn for the time being shown. Rendering a black, star-filled
@@ -1151,8 +1180,20 @@ export function SkyScene({
       <fog attach="fog" args={[daylight.horizon, 120, 260]} />
       {daylight.stars > 0.02 && <MilkyWay loc={loc} when={when} visible={daylight.stars} />}
       {showFigures && daylight.stars > 0.15 && (
-        <Figures loc={loc} when={when} fovRef={fovRef} visible={daylight.stars} />
+        <Figures
+          loc={loc}
+          when={when}
+          fovRef={fovRef}
+          visible={daylight.stars}
+          onReveal={setRevealed}
+        />
       )}
+      <ConstellationArt
+        name={revealed}
+        when={when}
+        loc={loc}
+        onDone={() => setRevealed(null)}
+      />
       <Stars loc={loc} when={when} explore={explore} visible={daylight.stars} reduced={reduced} />
       <SunDisc loc={loc} when={when} onWarn={() => onSunWarning?.()} />
       <Horizon explore={explore} />

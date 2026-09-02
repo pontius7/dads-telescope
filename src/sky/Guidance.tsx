@@ -36,7 +36,11 @@ const LOCKED = new THREE.Color('#6ee7a8')
  * Sits on a plane held in front of the camera. `depthTest` is off so it draws
  * over the sky rather than being swallowed by the star sphere behind it.
  */
-function Reticle({ colour, reduced }: { colour: THREE.Color; reduced: boolean }) {
+function Reticle({ colour, reduced, locked }: {
+  colour: THREE.Color
+  reduced: boolean
+  locked: boolean
+}) {
   const group = useRef<THREE.Group>(null)
   const { camera } = useThree()
 
@@ -44,52 +48,104 @@ function Reticle({ colour, reduced }: { colour: THREE.Color; reduced: boolean })
     () =>
       TELRAD_RINGS.map((deg) => {
         const r = RETICLE_DIST * Math.tan((deg * Math.PI) / 180)
-        // A hairline annulus. Width scales with the ring so the outer one does
-        // not turn into a thread while the inner is a band.
-        const w = Math.max(r * 0.012, 0.012)
-        return { deg, geometry: new THREE.RingGeometry(r - w, r + w, 128) }
+        const w = Math.max(r * 0.014, 0.014)
+        return {
+          deg,
+          // Two rings, not one. The thin bright circle vanishes against a
+          // bright sky, so a wider dark ring sits behind it — the same trick
+          // that keeps a map label readable over any photograph. Legibility
+          // then comes from CONTRAST, which survives daylight, red mode and
+          // colour blindness alike.
+          halo: new THREE.RingGeometry(r - w * 2.6, r + w * 2.6, 128),
+          line: new THREE.RingGeometry(r - w, r + w, 128),
+        }
       }),
     [],
   )
 
-  const mats = useRef<THREE.MeshBasicMaterial[]>([])
+  /**
+   * Four ticks outside the widest ring. They appear only on lock, so the
+   * "you are on it" state is a change of SHAPE and not just a change of
+   * colour — the one cue that still works for someone who cannot separate
+   * green from amber, and in red mode where every hue is the same hue.
+   */
+  const ticks = useMemo(() => {
+    const r = RETICLE_DIST * Math.tan((TELRAD_RINGS[2] * Math.PI) / 180)
+    return [0, 90, 180, 270].map((deg) => {
+      const a = (deg * Math.PI) / 180
+      return {
+        deg,
+        position: [Math.cos(a) * r * 1.22, Math.sin(a) * r * 1.22, 0] as [number, number, number],
+        rotation: [0, 0, a] as [number, number, number],
+        size: [r * 0.16, Math.max(r * 0.02, 0.02)] as [number, number],
+      }
+    })
+  }, [])
 
-  useFrame((state) => {
+  const lineMats = useRef<THREE.MeshBasicMaterial[]>([])
+  const tickMats = useRef<THREE.MeshBasicMaterial[]>([])
+  const lockFade = useRef(0)
+
+  useFrame((state, dt) => {
     if (!group.current) return
-    // Ride the camera: one distance out along the view axis, square to it.
     const dir = new THREE.Vector3()
     camera.getWorldDirection(dir)
     group.current.position.copy(dir.multiplyScalar(RETICLE_DIST))
     group.current.quaternion.copy(camera.quaternion)
 
-    // A slow breath on the outer ring only, so the reticle reads as live
-    // without any of it drifting off its true angle — the RINGS never change
-    // size, only their opacity does.
-    // A slow breath, unless less movement was asked for — the reticle still
-    // has to be visible then, so only the pulse goes, never the rings.
-    const pulse = reduced ? 1 : 0.82 + 0.18 * Math.sin(state.clock.elapsedTime * 1.6)
-    mats.current.forEach((m, i) => {
+    const pulse = reduced ? 1 : 0.86 + 0.14 * Math.sin(state.clock.elapsedTime * 1.6)
+    lineMats.current.forEach((m, i) => {
       if (!m) return
       m.color.copy(colour)
-      m.opacity = (i === 0 ? 0.9 : i === 1 ? 0.5 : 0.32) * pulse
+      m.opacity = (i === 0 ? 0.95 : i === 1 ? 0.62 : 0.42) * pulse
+    })
+
+    // Ticks ease in and out rather than blinking on.
+    const want = locked ? 1 : 0
+    lockFade.current += (want - lockFade.current) * (reduced ? 1 : 1 - Math.exp(-dt * 9))
+    tickMats.current.forEach((m) => {
+      if (!m) return
+      m.color.copy(colour)
+      m.opacity = lockFade.current
     })
   })
 
   return (
-    // Drawn last, always. `depthTest: false` alone is not enough: the horizon
-    // plane is transparent too, and sorts NEARER than the reticle, so it was
-    // painting over the aiming device exactly when the view dropped below the
-    // horizon — which is precisely when you need to know where you are aimed.
     <group ref={group} renderOrder={20}>
       {rings.map((r, i) => (
-        <mesh key={r.deg} geometry={r.geometry} renderOrder={20}>
+        <group key={r.deg}>
+          <mesh geometry={r.halo} renderOrder={19}>
+            <meshBasicMaterial
+              color="#05070c"
+              transparent
+              opacity={0.5}
+              depthTest={false}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          <mesh geometry={r.line} renderOrder={20}>
+            <meshBasicMaterial
+              ref={(m) => { if (m) lineMats.current[i] = m }}
+              color={colour}
+              transparent
+              opacity={0.8}
+              depthTest={false}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        </group>
+      ))}
+
+      {ticks.map((tk, i) => (
+        <mesh key={tk.deg} position={tk.position} rotation={tk.rotation} renderOrder={20}>
+          <planeGeometry args={tk.size} />
           <meshBasicMaterial
-            ref={(m) => {
-              if (m) mats.current[i] = m
-            }}
+            ref={(m) => { if (m) tickMats.current[i] = m }}
             color={colour}
             transparent
-            opacity={0.5}
+            opacity={0}
             depthTest={false}
             depthWrite={false}
             side={THREE.DoubleSide}
@@ -256,7 +312,7 @@ export function Guidance({
 
   return (
     <>
-      <Reticle colour={colour.current} reduced={reduced} />
+      <Reticle colour={colour.current} reduced={reduced} locked={guidance.phase === 'locked'} />
       {target && <Trail target={target} reduced={reduced} />}
     </>
   )

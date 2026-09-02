@@ -21,7 +21,7 @@ export function PointingHUD({ active }: { active: boolean }) {
   const turnEl = useRef<HTMLDivElement>(null)
   const subEl = useRef<HTMLDivElement>(null)
   const nameEl = useRef<HTMLDivElement>(null)
-  const warnEl = useRef<HTMLDivElement>(null)
+
 
   useEffect(() => {
     if (!active) return
@@ -39,6 +39,12 @@ export function PointingHUD({ active }: { active: boolean }) {
         root.current.dataset.phase = g.phase
         lastPhase = g.phase
       }
+      // The banner is gone — it was a paragraph of warning over the sky every
+      // time the compass was less than perfect, which is most of the time. The
+      // claim it made still has to be made, so it is made on the number
+      // itself: a rough heading is marked approximate and coloured, which is
+      // exactly as true and takes no room.
+      if (root.current) root.current.dataset.quality = g.quality
 
       if (nameEl.current) {
         nameEl.current.textContent = g.targetName ?? ''
@@ -46,7 +52,9 @@ export function PointingHUD({ active }: { active: boolean }) {
 
       if (turnEl.current) {
         if (!g.targetName) {
-          turnEl.current.textContent = `${Math.round(g.altDeg)}° ${compass(g.azDeg)}`
+          const rough = g.quality === 'unreliable' || g.quality === 'coarse'
+          const here = `${Math.round(g.altDeg)}° ${compass(g.azDeg)}`
+          turnEl.current.textContent = rough ? `≈ ${here}` : here
         } else if (g.phase === 'locked') {
           turnEl.current.textContent = t('guide.centred')
         } else {
@@ -57,7 +65,9 @@ export function PointingHUD({ active }: { active: boolean }) {
           const ud = Math.round(Math.abs(g.turnUpDeg))
           if (lr >= 1) parts.push(g.turnRightDeg > 0 ? t('guide.right', lr) : t('guide.left', lr))
           if (ud >= 1) parts.push(g.turnUpDeg > 0 ? t('guide.up', ud) : t('guide.down', ud))
-          turnEl.current.textContent = parts.join('  ·  ') || t('guide.almost')
+          const rough = g.quality === 'unreliable' || g.quality === 'coarse'
+          const text = parts.join('  ·  ') || t('guide.almost')
+          turnEl.current.textContent = rough ? `≈ ${text}` : text
         }
       }
 
@@ -69,18 +79,6 @@ export function PointingHUD({ active }: { active: boolean }) {
             : t('guide.away', g.separationDeg)
       }
 
-      if (warnEl.current) {
-        // Never draw a confident arrow on a compass that has said it is not
-        // sure. This is the same rule the weather panel follows.
-        const msg =
-          g.quality === 'unreliable'
-            ? t('guide.calibrate')
-            : g.quality === 'coarse'
-              ? t('guide.coarse')
-              : ''
-        warnEl.current.textContent = msg
-        warnEl.current.hidden = msg === ''
-      }
     }
 
     frame = requestAnimationFrame(tick)
@@ -94,7 +92,6 @@ export function PointingHUD({ active }: { active: boolean }) {
       <div className="hud-name" ref={nameEl} />
       <div className="hud-turn" ref={turnEl} />
       <div className="hud-sub" ref={subEl} />
-      <div className="hud-warn" ref={warnEl} hidden />
     </div>
   )
 }

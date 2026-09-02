@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, lazy, Suspense } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react'
 // Lazy so the UI shell, catalogue and domain logic land before the 3D stack.
 // Three.js is the bulk of the bundle and nothing above it needs to wait.
 const SkyScene = lazy(() => import('./sky/SkyScene').then((m) => ({ default: m.SkyScene })))
@@ -20,8 +20,8 @@ import {
   moonReport, sunReport, planetRows, localSiderealHours, activeShowers, dewRisk,
 } from './domain/tonight'
 import { TELESCOPE, magnification, exitPupilMm } from './domain/optics'
-import { describeFreshness } from './services/weather'
 import { useOrientation } from './useOrientation'
+import { useSkyIdle } from './useSkyIdle'
 import { PointingHUD } from './PointingHUD'
 import { hasThumb } from './sky/thumbs'
 import { SHOWPIECE_FLOOR } from './domain/featured'
@@ -85,6 +85,9 @@ export default function App() {
     // the root lets the palette compensate for what red multiply removes.
     document.documentElement.dataset.night = String(night.nightVision)
   }, [night.nightVision])
+
+  // The controls over the sky step aside while it is being handled.
+  const chromeHidden = useSkyIdle()
 
   const orient = useOrientation()
   const sensorOn = orient.state === 'granted'
@@ -164,49 +167,49 @@ export default function App() {
         />
       </Suspense>
 
-      <div className="topbar">
-        <button className="place" onClick={() => setPanel('location')}>
-          <strong>{sky.loc.latitudeDeg === HOME.latitudeDeg ? 'Mays Landing, NJ' : 'Custom location'}</strong>
-          <span>
-            {planWindow
-              ? `${formatTime(planWindow.start)} – ${formatTime(planWindow.end)}`
-              : sky.weather
-                ? sky.weather.provider === 'none'
-                  ? t('weather.unavailable')
-                  : describeFreshness(sky.weather, now)
-                : t('weather.checking')}
-          </span>
+      <div className="topbar" data-idle={chromeHidden}>
+        {/* A pin, not a place name. Which town it is never changes and never
+            needed the width; what matters is that the setting is reachable. */}
+        <button className="pinbtn" aria-label={t('menu.location')} onClick={() => setPanel('location')}>
+          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+            <path
+              d="M9 16.5s6-5.2 6-9.2A6 6 0 0 0 3 7.3c0 4 6 9.2 6 9.2Z"
+              fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"
+            />
+            <circle cx="9" cy="7.2" r="2.1" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
         </button>
 
-        <div className="topbar-right">
-          <div className="segmented" role="group" aria-label={t('explore.title')}>
-            <button
-              className={!explore ? 'on' : ''}
-              aria-pressed={!explore}
-              onClick={() => {
-                setExplore(false)
-                setExploreTime(null)
-              }}
-            >
-              {t('explore.live')}
-            </button>
-            <button
-              className={explore ? 'on' : ''}
-              aria-pressed={explore}
-              onClick={() => {
-                setExplore(true)
-                setExploreTime(new Date(now))
-              }}
-            >
-              {t('explore.explore')}
-            </button>
-          </div>
-          <button className="iconbtn" aria-label={t('menu.title')} onClick={() => setPanel('menu')}>
-            <svg width="20" height="14" viewBox="0 0 20 14" aria-hidden="true">
-              <path d="M0 1h20M0 7h20M0 13h20" stroke="currentColor" strokeWidth="1.4" />
-            </svg>
+        {/* Centred, because it is the one control that changes what the whole
+            screen means. */}
+        <div className="segmented" role="group" aria-label={t('explore.title')}>
+          <button
+            className={!explore ? 'on' : ''}
+            aria-pressed={!explore}
+            onClick={() => {
+              setExplore(false)
+              setExploreTime(null)
+            }}
+          >
+            {t('explore.live')}
+          </button>
+          <button
+            className={explore ? 'on' : ''}
+            aria-pressed={explore}
+            onClick={() => {
+              setExplore(true)
+              setExploreTime(new Date(now))
+            }}
+          >
+            {t('explore.explore')}
           </button>
         </div>
+
+        <button className="iconbtn" aria-label={t('menu.title')} onClick={() => setPanel('menu')}>
+          <svg width="24" height="18" viewBox="0 0 24 18" aria-hidden="true">
+            <path d="M0 1.5h24M0 9h24M0 16.5h24" stroke="currentColor" strokeWidth="1.7" />
+          </svg>
+        </button>
       </div>
 
       {explore && (
@@ -731,11 +734,26 @@ function HotSheet({ sky, onSelect, onOpen }: { sky: Sky; onSelect: (id: string) 
         </button>
       )}
       {sky.notableMissing.length > 0 && (
-        <button className="row" onClick={() => onOpen('notTonight')}>
-          <span className="row-main">
-            <span className="row-name muted">{t('hot.notTonight', sky.notableMissing.length)} ›</span>
-          </span>
-        </button>
+        <>
+          {/* Shown here rather than hidden behind a link: "what can I not see
+              tonight, and why" is the same question as "what can I see", and
+              splitting it across two screens made the answer feel arbitrary.
+              Dimmed and unclickable, so they read as context, not choices. */}
+          <div className="listhead">{t('notTonight.title')}</div>
+          {sky.notableMissing.map((s) => (
+            <div key={s.target.id} className="row static row-out">
+              <RowThumb s={s} />
+              <span className="row-main">
+                <span className="row-name">{displayName(s)}</span>
+                <span className="row-sub wrap">
+                  {s.observability.reason
+                    ? t(`reason.${s.observability.reason}` as StringKey)
+                    : t('notTonight.title')}
+                </span>
+              </span>
+            </div>
+          ))}
+        </>
       )}
       <button className="row" onClick={() => onOpen('upcoming')}>
         <span className="row-main">
@@ -1227,6 +1245,9 @@ function SourcesSheet({ onBack }: { onBack: () => void }) {
   return (
     <Sheet title={t('sources.title')} onBack={onBack}>
       <p className="note">{t('sources.note')}</p>
+      {/* The Free Art License permits use and modification and REQUIRES
+          attribution. This is that attribution, not a courtesy. */}
+      <p className="note">{t('sources.figures')}</p>
       <div className="label mb sp">{t('sources.assumptions')}</div>
       {assumptions.map((s) => (
         <div key={s.id} className="fact">
@@ -1279,26 +1300,64 @@ function LocationSheet({
   )
 }
 
+/**
+ * Scrubbing time, without a slider.
+ *
+ * The old control was a labelled track with a thumb across the bottom of the
+ * sky — three elements and a lot of chrome to move one number. Here the number
+ * IS the control: drag it sideways to move through the night, tap it to come
+ * back to now. Nothing is drawn that is not the answer.
+ */
 function ExploreBar({
   when, onChange, onReset,
 }: { when: Date; onChange: (d: Date) => void; onReset: () => void }) {
-  // Hours offset from the anchor, so dragging scrubs forward and back in time.
+  // Hours from the anchor, so dragging scrubs forward and back through it.
   const [offset, setOffset] = useState(0)
   const base = useMemo(() => new Date(when.getTime() - offset * 3_600_000), [])
+  const drag = useRef<{ x: number; from: number; moved: boolean } | null>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const apply = (hours: number) => {
+    const clamped = Math.max(-12, Math.min(12, hours))
+    setOffset(clamped)
+    onChange(new Date(base.getTime() + clamped * 3_600_000))
+  }
+
   return (
-    <div className="explorebar">
-      <span className="label">{t('explore.time')}</span>
-      <input
-        type="range" min={-12} max={12} step={0.25} value={offset}
+    <div className="timepill-wrap">
+      <button
+        className="timepill"
+        data-dragging={dragging}
         aria-label={t('explore.time')}
-        onChange={(e) => {
-          const v = Number(e.target.value)
-          setOffset(v)
-          onChange(new Date(base.getTime() + v * 3_600_000))
+        onPointerDown={(e) => {
+          drag.current = { x: e.clientX, from: offset, moved: false }
+          setDragging(true)
+          e.currentTarget.setPointerCapture(e.pointerId)
         }}
-      />
-      <button className="linkbtn" onClick={() => { setOffset(0); onReset() }}>
-        {formatTime(when)}
+        onPointerMove={(e) => {
+          const d = drag.current
+          if (!d) return
+          const dx = e.clientX - d.x
+          if (Math.abs(dx) > 3) d.moved = true
+          // A full screen width is about eight hours: fine enough to land on a
+          // minute, coarse enough to cross the night in one gesture.
+          apply(d.from + (dx / Math.max(240, window.innerWidth)) * 8)
+        }}
+        onPointerUp={() => {
+          const moved = drag.current?.moved
+          drag.current = null
+          setDragging(false)
+          // A tap, not a drag, means "back to now".
+          if (!moved) {
+            setOffset(0)
+            onReset()
+          }
+        }}
+      >
+        <span className="timepill-v">{formatTime(when)}</span>
+        <span className="timepill-hint" aria-hidden="true">
+          {offset === 0 ? t('explore.scrub') : t('explore.now')}
+        </span>
       </button>
     </div>
   )

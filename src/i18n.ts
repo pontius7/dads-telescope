@@ -100,6 +100,8 @@ const en = {
   'explore.note':
     'Explore mode lets you look anywhere, including below the horizon. Scrub the time to see what rises later.',
   'explore.time': 'Time',
+  'explore.scrub': 'drag to move through the night',
+  'explore.now': 'tap for now',
   'imaging.title': 'Imaging',
   'imaging.camera': 'Celestron NexImage 10',
   'imaging.intro':
@@ -174,6 +176,8 @@ const en = {
   'guide.calibrate': 'Compass off. Wave the phone in a figure 8.',
   'guide.coarse': 'Compass is rough — direction is approximate.',
   'sources.title': 'About & sources',
+  'sources.figures':
+    'Constellation figures are Johan Meuris\u2019s illustrations for Stellarium, used under the Free Art License.',
   'sources.assumptions': 'Our judgement calls',
   'sources.data': 'Data and formulas',
   'sources.note':
@@ -335,6 +339,8 @@ const me: Record<StringKey, unknown> = {
   'explore.note':
     'Režim istraživanja ti dozvoljava da gledaš bilo gdje, i ispod horizonta. Pomjeraj vrijeme da vidiš šta izlazi kasnije.',
   'explore.time': 'Vrijeme',
+  'explore.scrub': 'prevuci kroz noć',
+  'explore.now': 'dodirni za sada',
   'imaging.title': 'Snimanje',
   'imaging.camera': 'Celestron NexImage 10',
   'imaging.intro':
@@ -409,6 +415,8 @@ const me: Record<StringKey, unknown> = {
   'sensor.denied': 'Pristup senzorima je odbijen. Kontrole na dodir i dalje rade.',
   'sensor.note': 'Podigni telefon i okreći se — prikaz te prati.',
   'sources.title': 'O aplikaciji i izvori',
+  'sources.figures':
+    'Likovi sazvije\u017e\u0111a su ilustracije Johana Merisa za Stellarium, kori\u0161\u0107ene pod Free Art licencom.',
   'sources.assumptions': 'Naše procjene',
   'sources.data': 'Podaci i formule',
   'sources.note':

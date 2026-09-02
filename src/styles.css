@@ -90,14 +90,46 @@ body {
   top: calc(var(--safe-t) + 10px);
   left: calc(var(--safe-l) + 16px);
   right: calc(var(--safe-r) + 16px);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  /* Equal outer columns are what actually centres the toggle: with flex it
+     would sit wherever the two icons left room. */
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
   gap: 12px;
   z-index: 20;
   pointer-events: none;
 }
 .topbar > * { pointer-events: auto; }
+.topbar > .pinbtn { justify-self: start; }
+.topbar > .iconbtn {
+  width: 48px; height: 48px; justify-self: end; }
+
+/* While the sky is being dragged or zoomed these are in the way of the thing
+   being moved, so they leave — and come back on their own once the hands
+   stop. Opacity only: nothing reflows, and the buttons stop accepting taps so
+   a stray finger cannot hit what it cannot see. */
+.topbar[data-idle='true'] > * {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+}
+.topbar > * {
+  opacity: 1;
+  transform: none;
+  transition: opacity 260ms var(--ease), transform 260ms var(--ease);
+}
+
+.pinbtn {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  background: rgba(8, 11, 18, 0.72);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+}
+.pinbtn:hover { background: rgba(255,255,255,0.06); }
+.pinbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
 
 /* The sky is no longer always black. A scrim keeps the top controls legible
    against a bright afternoon without tinting the sky itself, and costs nothing
@@ -242,12 +274,12 @@ body {
 .row-main { flex: 1; min-width: 0; }
 .row-name {
   display: block;                      /* spans are inline by default */
-  font-size: var(--t-value);
+  font-size: 20px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .row-sub {
   display: block;
-  font-size: var(--t-body); color: var(--muted); margin-top: 4px;
+  font-size: 17px; color: var(--muted); margin-top: 5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -342,6 +374,7 @@ body {
   backdrop-filter: blur(12px);
 }
 .segmented button {
+  min-height: 44px;
   background: none; border: 0;
   padding: 9px 12px;
   min-height: 38px;
@@ -353,20 +386,7 @@ body {
 .segmented button.on { color: var(--ink); background: rgba(255,255,255,0.08); }
 
 /* Time scrubber, only present in Explore mode */
-.explorebar {
-  position: fixed;
-  left: calc(var(--safe-l) + 16px);
-  right: calc(var(--safe-r) + 16px);
-  bottom: calc(var(--safe-b) + 78px);
-  z-index: 18;
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px;
-  background: rgba(8, 11, 18, 0.82);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-.explorebar input[type="range"] { flex: 1; accent-color: var(--good); min-height: 32px; }
+/* The explore time slider was replaced by `.timepill` above. */
 
 /* Point at sky */
 .sensorbtn {
@@ -614,18 +634,11 @@ body {
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
 }
 
-.hud-warn {
-  margin-top: 12px;
-  font-size: var(--t-body);
-  line-height: 1.45;
-  color: var(--fair);
-  background: rgba(10, 14, 22, 0.82);
-  border: 1px solid rgba(232, 196, 104, 0.28);
-  border-radius: 10px;
-  padding: 7px 12px;
-  display: inline-block;
-}
-
+/* The warning banner is gone; the claim it made now rides the number itself.
+   Colour alone never carries it — the reading is prefixed with a "≈". */
+.hud[data-quality='coarse'] .hud-turn,
+.hud[data-quality='unreliable'] .hud-turn { color: var(--fair); }
+.hud[data-quality='unreliable'] .hud-sub { color: var(--fair); }
 /* The state is legible without colour, but colour makes it readable at a
    glance from arm's length, which is how it is actually used. */
 .hud[data-phase='searching'] .hud-turn { color: var(--muted); font-size: clamp(20px, 5vw, 26px); }
@@ -826,3 +839,76 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .nightbtn { transition: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Scrubbing time.
+
+   The slider is gone. It was a label, a track and a thumb spread across the
+   bottom of the sky to move one number — three pieces of chrome over the thing
+   you came to look at. Here the number is the control: drag it to move through
+   the night, tap it to come back to now.
+   --------------------------------------------------------------------------- */
+.timepill-wrap {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(var(--safe-b) + 108px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 14;
+}
+.timepill {
+  pointer-events: auto;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 22px;
+  min-height: 56px;
+  border-radius: 999px;
+  background: rgba(8, 11, 18, 0.74);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  cursor: grab;
+  touch-action: none;      /* the drag is ours, not the browser's */
+  backdrop-filter: blur(10px);
+  transition: border-color 200ms var(--ease), transform 200ms var(--ease);
+}
+.timepill[data-dragging='true'] {
+  cursor: grabbing;
+  border-color: var(--line-strong);
+  transform: scale(1.03);
+}
+.timepill:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 3px; }
+.timepill-v {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.timepill-hint {
+  font-size: var(--t-eyebrow);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar > *,
+  .timepill { transition: none; }
+}
+
+/* A quiet divider between what is up tonight and what is not. */
+.listhead {
+  font-size: var(--t-eyebrow);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 22px 0 10px;
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+}
+
+/* Out of reach tonight: present, legible, plainly not on offer. */
+.row-out { opacity: 0.55; }
+.row-out .row-thumb { filter: grayscale(1); }
