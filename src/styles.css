@@ -167,25 +167,7 @@ body {
 .iconbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
 
 /* ---------------------------------------------------------------- zoom */
-.zoom {
-  position: fixed;
-  right: calc(var(--safe-r) + 16px);
-  bottom: calc(var(--safe-b) + 96px);
-  display: grid;
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-  z-index: 15;
-}
-.zoom button {
-  width: 44px; height: 44px;
-  background: rgba(8,11,18,0.8);
-  border: 0; color: var(--ink);
-  font-size: 18px; line-height: 1; cursor: pointer;
-}
-.zoom button:hover { background: rgba(255,255,255,0.08); }
+/* The zoom buttons were removed; pinch and wheel do it. */
 
 /* ---------------------------------------------------------------- sheet */
 .sheet {
@@ -389,23 +371,6 @@ body {
 /* The explore time slider was replaced by `.timepill` above. */
 
 /* Point at sky */
-.sensorbtn {
-  position: fixed;
-  left: calc(var(--safe-l) + 16px);
-  bottom: calc(var(--safe-b) + 78px);
-  z-index: 16;
-  min-height: 44px;
-  padding: 0 16px;
-  background: rgba(8, 11, 18, 0.8);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--ink); font: inherit; font-size: var(--t-body);
-  letter-spacing: 0.08em; text-transform: uppercase;
-  cursor: pointer;
-}
-.sensorbtn.on { border-color: var(--good); color: var(--good); }
-
 .toast {
   position: fixed;
   left: 50%; transform: translateX(-50%);
@@ -813,32 +778,6 @@ body {
 /* The red-mode switch, on the main screen and in thumb reach above the zoom
    pair. 48px because it is used in the dark, in gloves, by someone who should
    not have to aim. */
-.nightbtn {
-  position: fixed;
-  right: calc(var(--safe-r) + 16px);
-  bottom: calc(var(--safe-b) + 190px);
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: rgba(8, 11, 18, 0.8);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  cursor: pointer;
-  z-index: 15;
-  transition: color 220ms var(--ease), border-color 220ms var(--ease);
-}
-.nightbtn:hover { background: rgba(255, 255, 255, 0.06); }
-.nightbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
-.nightbtn[aria-pressed='true'] {
-  color: var(--poor);
-  border-color: color-mix(in srgb, var(--poor) 45%, transparent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nightbtn { transition: none; }
-}
 
 /* ---------------------------------------------------------------------------
    Scrubbing time.
@@ -912,3 +851,162 @@ body {
 /* Out of reach tonight: present, legible, plainly not on offer. */
 .row-out { opacity: 0.55; }
 .row-out .row-thumb { filter: grayscale(1); }
+
+/* ---------------------------------------------------------------------------
+   The sky dock.
+
+   One column of round controls, bottom right, in thumb reach. It replaced a
+   full-width "POINT AT SKY" pill that collided with the sheet and read like a
+   dialog button from another decade, and the two zoom rectangles, which pinch
+   already did better.
+   --------------------------------------------------------------------------- */
+.skydock {
+  position: fixed;
+  right: calc(var(--safe-r) + 16px);
+  bottom: calc(var(--safe-b) + 104px);
+  display: grid;
+  gap: 10px;
+  z-index: 15;
+}
+.dockbtn {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(8, 11, 18, 0.72);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: color 200ms var(--ease), border-color 200ms var(--ease),
+    transform 200ms var(--ease);
+}
+.dockbtn:hover { background: rgba(255, 255, 255, 0.06); }
+.dockbtn:active { transform: scale(0.94); }
+.dockbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 3px; }
+.dockbtn[aria-pressed='true'] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Menu: search, and rows that arrive.
+   --------------------------------------------------------------------------- */
+.searchrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6px;
+}
+.searchbtn {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: none; border: 0; padding: 0;
+  color: var(--muted); cursor: pointer;
+  border-radius: 10px;
+  transition: color 200ms var(--ease);
+}
+.searchrow[data-open='true'] .searchbtn { color: var(--ink); }
+.searchbtn:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
+
+/* Grows out of the magnifier rather than sitting there as an empty box:
+   invisible until wanted, immediate once it is. */
+.searchinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 0;
+  opacity: 0;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  min-height: 44px;
+  outline: none;
+  transition: width 320ms var(--ease), opacity 260ms var(--ease);
+}
+.searchrow[data-open='true'] .searchinput { width: 100%; opacity: 1; }
+.searchinput::placeholder { color: var(--faint); }
+.searchclear {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  background: none; border: 0;
+  color: var(--muted); cursor: pointer; font-size: 15px;
+}
+
+/* Rows arrive one after another. Fast and small — it reads as the sheet
+   opening rather than as an effect. */
+.menurow {
+  animation: menurow-in 260ms var(--ease) both;
+}
+@keyframes menurow-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.row-go {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 20px;
+  margin-left: 12px;
+  transition: transform 200ms var(--ease), color 200ms var(--ease);
+}
+.menurow:hover .row-go { transform: translateX(3px); color: var(--muted); }
+
+/* ---------------------------------------------------------------- logbook */
+.logbtns {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 4px;
+  flex-wrap: wrap;
+}
+.logbtn {
+  flex: 1 1 auto;
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 14px;
+  background: rgba(110, 231, 168, 0.1);
+  border: 1px solid color-mix(in srgb, var(--good) 40%, transparent);
+  color: var(--good);
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+  transition: background 200ms var(--ease), transform 160ms var(--ease);
+}
+.logbtn:active { transform: scale(0.98); }
+.logbtn[data-done='true'] { background: rgba(110, 231, 168, 0.2); }
+.logbtn.ghost {
+  background: none;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.logrow { align-items: flex-start; }
+.logedit {
+  display: block;
+  margin-top: 8px;
+  text-align: left;
+  white-space: normal;
+}
+.logdraft {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;      /* 16 exactly: below it, iOS zooms the field */
+  resize: vertical;
+}
+.logactions { display: flex; gap: 16px; margin-top: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .menurow { animation: none; }
+  .dockbtn, .searchinput, .searchbtn, .logbtn, .row-go { transition: none; }
+}

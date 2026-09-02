@@ -17,7 +17,7 @@ import { deviceToAim, type DevicePose } from '../domain/pointing'
 import { daylightPhase, skyPalette, starVisibility } from '../domain/daylight'
 import { Guidance } from './Guidance'
 import { useReducedMotion } from '../useReducedMotion'
-import { applyZoomNudge, clampFov } from './zoom'
+import { clampFov } from './zoom'
 import { ConstellationArt, hasFigure } from './ConstellationArt'
 import { Body, Illumination, MakeTime, RotateVector, Rotation_EQJ_HOR, Vector } from 'astronomy-engine'
 import { badgeTexture, discTexture, ringTexture } from './markerTexture'
@@ -925,12 +925,11 @@ function AnimatedMarker({
  * the fly-to needs to interpolate the same state the gestures write.
  */
 function CameraRig({
-  flyTo, zoomNudge, initialView, explore, pose, fovOut, reduced,
+  flyTo, initialView, explore, pose, fovOut, reduced,
 }: {
   reduced: boolean
   fovOut?: React.RefObject<number>
   flyTo: { altDeg: number; azDeg: number } | null
-  zoomNudge: number
   initialView: { altDeg: number; azDeg: number } | null
   /** Explore mode lets the view go below the horizon. */
   explore: boolean
@@ -962,25 +961,6 @@ function CameraRig({
     if (flyTo) target.current = { az: flyTo.azDeg, alt: flyTo.altDeg }
   }, [flyTo])
 
-  /**
-   * The zoom buttons.
-   *
-   * `zoomNudge` is a running total, not a step, and this used to add the whole
-   * total to the field of view on every change — so the first tap moved 6
-   * degrees, the second 12, the third 18, accelerating away. Taking the
-   * DIFFERENCE since the last change makes every tap the same size.
-   *
-   * The result is a target, eased toward in the frame loop rather than applied
-   * at once. A button press is a frequent action, so the move is quick — but
-   * a camera that teleports gives no sense of having moved, and losing your
-   * place in the sky is the one thing this control must not do.
-   */
-  const lastNudge = useRef(0)
-  useEffect(() => {
-    const next = applyZoomNudge(fovTarget.current, lastNudge.current, zoomNudge)
-    fovTarget.current = next.fovTarget
-    lastNudge.current = next.total
-  }, [zoomNudge])
 
   useEffect(() => {
     const el = gl.domElement
@@ -1116,9 +1096,9 @@ function CameraRig({
 }
 
 export function SkyScene({
-  loc, when, targets, selectedId, onSelect, flyTo, zoomNudge, initialView,
+  loc, when, targets, selectedId, onSelect, flyTo, initialView,
   explore = false, pose = null, accuracy = null, guideTo = null, guideName = null,
-  showFigures = true, onSunWarning,
+  showFigures = true, onSunWarning, revealConstellation = null, onRevealed,
 }: {
   loc: GeoLocation
   when: Date
@@ -1126,7 +1106,6 @@ export function SkyScene({
   selectedId: string | null
   onSelect: (id: string | null) => void
   flyTo: { altDeg: number; azDeg: number } | null
-  zoomNudge: number
   initialView: { altDeg: number; azDeg: number } | null
   explore?: boolean
   pose?: React.RefObject<DevicePose | null> | null
@@ -1137,12 +1116,18 @@ export function SkyScene({
   showFigures?: boolean
   /** Tapping the Sun warns; it is never a target. */
   onSunWarning?: () => void
+  /** Reveal a figure without tapping it — search reaches the artwork this way. */
+  revealConstellation?: string | null
+  onRevealed?: () => void
 }) {
   const [dpr, setDpr] = useState(1.5)
   const fovRef = useRef(64)
   const reduced = useReducedMotion()
   /** The constellation whose figure is currently rising and fading. */
   const [revealed, setRevealed] = useState<string | null>(null)
+  useEffect(() => {
+    if (revealConstellation) setRevealed(revealConstellation)
+  }, [revealConstellation])
 
   /**
    * The sky is drawn for the time being shown. Rendering a black, star-filled
@@ -1192,7 +1177,10 @@ export function SkyScene({
         name={revealed}
         when={when}
         loc={loc}
-        onDone={() => setRevealed(null)}
+        onDone={() => {
+          setRevealed(null)
+          onRevealed?.()
+        }}
       />
       <Stars loc={loc} when={when} explore={explore} visible={daylight.stars} reduced={reduced} />
       <SunDisc loc={loc} when={when} onWarn={() => onSunWarning?.()} />
@@ -1220,7 +1208,6 @@ export function SkyScene({
       </EffectComposer>
       <CameraRig
         flyTo={flyTo}
-        zoomNudge={zoomNudge}
         initialView={initialView}
         explore={explore}
         pose={pose}

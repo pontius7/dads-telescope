@@ -26,6 +26,11 @@ import { PointingHUD } from './PointingHUD'
 import { hasThumb } from './sky/thumbs'
 import { SHOWPIECE_FLOOR } from './domain/featured'
 import { upcomingHighlights } from './domain/upcoming'
+import { search, type Searchable, type SearchHit } from './domain/search'
+import { CONSTELLATIONS } from './sky/constellations'
+import {
+  addLogEntry, loadLog, nightsObserved, removeLogEntry, updateLogNote, type LogEntry,
+} from './data/logbook'
 import { fetchNews, type NewsResult } from './services/news'
 import { useWakeLock, type WakeLockState } from './useWakeLock'
 import {
@@ -47,7 +52,7 @@ type Panel =
   | 'hot' | 'detail' | 'notTonight' | 'menu'
   | 'equipment' | 'sources' | 'location' | 'language'
   | 'plan' | 'imaging'
-  | 'sun' | 'tonight' | 'upcoming' | 'news' | 'night' | null
+  | 'sun' | 'tonight' | 'upcoming' | 'news' | 'night' | 'logbook' | null
 
 /** Re-render everything when the language changes. */
 function useLang() {
@@ -70,7 +75,6 @@ export default function App() {
 
   const [panel, setPanel] = useState<Panel>('hot')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [zoomNudge, setZoomNudge] = useState(0)
   const [explore, setExplore] = useState(false)
   const [exploreTime, setExploreTime] = useState<Date | null>(null)
 
@@ -88,6 +92,55 @@ export default function App() {
 
   // The controls over the sky step aside while it is being handled.
   const chromeHidden = useSkyIdle()
+
+  const [log, setLog] = useState<LogEntry[]>(loadLog)
+  /** Set from search, so the figures are reachable without hunting for a tap. */
+  const [revealConstellation, setRevealConstellation] = useState<string | null>(null)
+
+  /**
+   * One index over everything findable. Built once: the catalogue does not
+   * change while the app is open, and rebuilding it per keystroke would be
+   * work for nothing.
+   */
+  const searchIndex = useMemo<Searchable[]>(() => {
+    const targets: Searchable[] = ALL_TARGETS.map((tg) => ({
+      kind: 'target',
+      id: tg.id,
+      title: ('commonName' in tg && tg.commonName) || tg.name,
+      subtitle: [tg.name, tg.kind.replace(/-/g, ' ')].join(' · '),
+      terms: [
+        tg.name,
+        ('commonName' in tg && tg.commonName) || '',
+        ('catalogId' in tg && tg.catalogId) || '',
+        ('constellation' in tg && tg.constellation) || '',
+        tg.kind.replace(/-/g, ' '),
+      ].filter(Boolean) as string[],
+      weight: tg.popularity,
+    }))
+    const constellations: Searchable[] = CONSTELLATIONS.map((c) => ({
+      kind: 'constellation',
+      id: c.name,
+      title: c.name,
+      subtitle: c.common ?? t('search.constellation'),
+      terms: [c.name, c.common ?? ''].filter(Boolean),
+      weight: 0.5,
+    }))
+    const pages: Searchable[] = ([
+      ['tonight', t('menu.tonight')], ['news', t('menu.news')], ['logbook', t('menu.logbook')],
+      ['night', t('menu.night')], ['plan', t('menu.plan')], ['imaging', t('menu.imaging')],
+      ['equipment', t('menu.equipment')], ['location', t('menu.location')],
+      ['language', t('menu.language')], ['sources', t('menu.sources')],
+      ['upcoming', t('upcoming.title')],
+    ] as [Panel, string][]).map(([id, title]) => ({
+      kind: 'page',
+      id: String(id),
+      title,
+      subtitle: t('menu.title'),
+      terms: [title],
+    }))
+    return [...targets, ...constellations, ...pages]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const orient = useOrientation()
   const sensorOn = orient.state === 'granted'
@@ -153,13 +206,14 @@ export default function App() {
           selectedId={selectedId}
           onSelect={select}
           flyTo={flyTo}
-          zoomNudge={zoomNudge}
           initialView={initialView}
           explore={explore}
           pose={sensorOn ? orient.pose : null}
           accuracy={orient.accuracy}
           guideTo={sensorOn ? guideTo : null}
           guideName={selected ? displayName(selected) : null}
+          revealConstellation={revealConstellation}
+          onRevealed={() => setRevealConstellation(null)}
           onSunWarning={() => {
             setSelectedId(null)
             setPanel('sun')
@@ -220,42 +274,44 @@ export default function App() {
         />
       )}
 
-      {/* Red mode belongs on the main screen, not two taps into a menu: it is
-          flipped repeatedly through an evening, and once it is ON the menu is
-          the hardest thing on the phone to read your way back into. */}
-      <button
-        className="nightbtn"
-        aria-pressed={night.nightVision}
-        aria-label={t('night.red')}
-        title={t('night.red')}
-        onClick={() => changeNight({ ...night, nightVision: !night.nightVision })}
-      >
-        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-          {/* A crescent: the same mark whether on or off, so the button never
-              changes meaning — only the fill says which state it is in. */}
-          <path
-            d="M14.6 3.2a8 8 0 1 0 4.2 10.4A6.4 6.4 0 0 1 14.6 3.2Z"
-            fill={night.nightVision ? 'currentColor' : 'none'}
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
 
-      <div className="zoom">
-        <button aria-label="Zoom in" onClick={() => setZoomNudge((z) => z - 6)}>−</button>
-        <button aria-label="Zoom out" onClick={() => setZoomNudge((z) => z + 6)}>+</button>
+      {/* One stack of round controls, bottom right, in thumb reach. The zoom
+          buttons are gone — pinch and wheel already do it, and two more
+          rectangles over the sky bought nothing. */}
+      <div className="skydock">
+        <button
+          className="dockbtn"
+          aria-pressed={night.nightVision}
+          aria-label={t('night.red')}
+          onClick={() => changeNight({ ...night, nightVision: !night.nightVision })}
+        >
+          <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+            <path
+              d="M14.6 3.2a8 8 0 1 0 4.2 10.4A6.4 6.4 0 0 1 14.6 3.2Z"
+              fill={night.nightVision ? 'currentColor' : 'none'}
+              stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+
+        {orient.state !== 'unsupported' && (
+          <button
+            className="dockbtn"
+            aria-pressed={sensorOn}
+            aria-label={sensorOn ? t('sensor.exit') : t('sensor.enable')}
+            onClick={() => (sensorOn ? orient.stop() : void orient.start())}
+          >
+            {/* A reticle, which is what the mode actually does — not a word
+                in a box the width of the screen. */}
+            <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <circle cx="12" cy="12" r="1.9" fill={sensorOn ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" />
+              <path d="M12 1.5v3.5M12 19v3.5M1.5 12h3.5M19 12h3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {orient.state !== 'unsupported' && (
-        <button
-          className={`sensorbtn${sensorOn ? ' on' : ''}`}
-          onClick={() => (sensorOn ? orient.stop() : void orient.start())}
-        >
-          {sensorOn ? t('sensor.exit') : t('sensor.enable')}
-        </button>
-      )}
       {orient.state === 'denied' && <p className="toast">{t('sensor.denied')}</p>}
 
       <PointingHUD active={sensorOn} />
@@ -269,10 +325,46 @@ export default function App() {
           onBack={backToSky}
           collapsed={!detailOpen}
           onToggle={() => setDetailOpen((v) => !v)}
+          logged={log.some((e) => e.targetId === selected.target.id && Date.now() - Date.parse(e.at) < 6 * 3600_000)}
+          onLog={(saw, setup) => {
+            const o = selected.observability
+            setLog(
+              addLogEntry({
+                at: new Date().toISOString(),
+                targetId: selected.target.id,
+                targetName: displayName(selected),
+                saw,
+                note: '',
+                eyepiece: setup?.rec
+                  ? `${setup.rec.eyepiece.brand} ${setup.rec.eyepiece.model}`
+                  : null,
+                magnification: setup?.rec?.magnification
+                  ? Math.round(setup.rec.magnification)
+                  : null,
+                altitudeDeg: o.peakAltitudeDeg,
+                // Only when a forecast actually covered the window.
+                cloudCoverPct: sky.conditions.bestCloudPct,
+                moonIlluminatedPct: null,
+              }),
+            )
+          }}
         />
       )}
       {panel === 'notTonight' && <NotTonightSheet sky={sky} onBack={() => setPanel('hot')} />}
-      {panel === 'menu' && <MenuSheet onGo={setPanel} onBack={backToSky} />}
+      {panel === 'menu' && (
+        <MenuSheet
+          onGo={setPanel}
+          onBack={backToSky}
+          index={searchIndex}
+          onPick={(hit) => {
+            if (hit.kind === 'target') select(hit.id)
+            else if (hit.kind === 'constellation') {
+              setRevealConstellation(hit.id)
+              backToSky()
+            } else setPanel(hit.id as Panel)
+          }}
+        />
+      )}
       {panel === 'equipment' && <EquipmentSheet sky={sky} onBack={backToSky} />}
       {panel === 'sources' && <SourcesSheet onBack={backToSky} />}
       {panel === 'language' && <LanguageSheet onBack={backToSky} />}
@@ -280,6 +372,9 @@ export default function App() {
       {panel === 'sun' && <SunSheet onBack={backToSky} />}
       {panel === 'upcoming' && <UpcomingSheet sky={sky} now={now} onBack={backToSky} />}
       {panel === 'news' && <NewsSheet onBack={backToSky} />}
+      {panel === 'logbook' && (
+        <LogbookSheet entries={log} onChange={setLog} onBack={backToSky} />
+      )}
       {panel === 'night' && (
         <NightSheet
           settings={night}
@@ -692,6 +787,108 @@ function NightSheet({
   )
 }
 
+
+/**
+ * The logbook.
+ *
+ * A conventional observing log wants date, telescope, eyepiece, magnification,
+ * conditions, object and notes. This app already knows all but one of those,
+ * so it writes them itself and asks only for the part no instrument supplies:
+ * whether he saw it, and what it looked like. A form with nine empty fields
+ * does not get filled in at a telescope in the cold.
+ *
+ * Misses are worth recording too — "looked, could not find it" is a real
+ * result and the thing you want to read back before trying again.
+ */
+function LogbookSheet({
+  entries, onChange, onBack,
+}: {
+  entries: LogEntry[]
+  onChange: (next: LogEntry[]) => void
+  onBack: () => void
+}) {
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  return (
+    <Sheet title={t('log.title')} onBack={onBack}>
+      {entries.length === 0 ? (
+        <p className="note">{t('log.empty')}</p>
+      ) : (
+        <p className="note mb">
+          {t('log.nights', nightsObserved(entries))} · {t('log.entries', entries.length)}
+        </p>
+      )}
+
+      {entries.map((e) => (
+        <div key={e.id} className="row static logrow">
+          {hasThumb(e.targetId) ? (
+            <img className="row-thumb" src={`/thumbs/${e.targetId}.webp`} alt="" loading="lazy" />
+          ) : (
+            <span className="row-thumb row-thumb-none" aria-hidden="true" />
+          )}
+          <span className="row-main">
+            <span className="row-name">{e.targetName}</span>
+            <span className="row-sub wrap">
+              {formatDate(new Date(e.at))} · {formatTime(new Date(e.at))}
+              {e.saw === 'no' ? ` · ${t('log.notSeen')}` : ''}
+            </span>
+            <span className="row-sub wrap">
+              {[
+                e.eyepiece,
+                e.magnification ? `${e.magnification}×` : null,
+                e.altitudeDeg !== null ? `${Math.round(e.altitudeDeg)}°` : null,
+                e.cloudCoverPct !== null
+                  ? t('upcoming.cloud', e.cloudCoverPct)
+                  : t('log.noCloud'),
+                e.moonIlluminatedPct !== null ? t('upcoming.moon', e.moonIlluminatedPct) : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+
+            {editing === e.id ? (
+              <>
+                <textarea
+                  className="logdraft"
+                  value={draft}
+                  autoFocus
+                  placeholder={t('log.notePlaceholder')}
+                  onChange={(ev) => setDraft(ev.target.value)}
+                />
+                <span className="logactions">
+                  <button
+                    className="linkbtn"
+                    onClick={() => {
+                      onChange(updateLogNote(e.id, draft.trim()))
+                      setEditing(null)
+                    }}
+                  >
+                    {t('log.saved')}
+                  </button>
+                  <button className="linkbtn" onClick={() => onChange(removeLogEntry(e.id))}>
+                    {t('log.remove')}
+                  </button>
+                </span>
+              </>
+            ) : (
+              <button
+                className="linkbtn logedit"
+                onClick={() => {
+                  setEditing(e.id)
+                  setDraft(e.note)
+                }}
+              >
+                {e.note !== '' ? e.note : t('log.note')}
+              </button>
+            )}
+          </span>
+        </div>
+      ))}
+    </Sheet>
+  )
+}
+
 function ConditionsLine({ sky }: { sky: Sky }) {
   const c = sky.conditions
   const label =
@@ -783,7 +980,7 @@ function NotTonightSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
 }
 
 function DetailSheet({
-  s, sky, when, onBack, collapsed, onToggle,
+  s, sky, when, onBack, collapsed, onToggle, onLog, logged,
 }: {
   s: ScoredTarget
   sky: Sky
@@ -791,6 +988,8 @@ function DetailSheet({
   onBack: () => void
   collapsed?: boolean
   onToggle?: () => void
+  onLog: (saw: 'yes' | 'no', setup: ReturnType<typeof setupFor>) => void
+  logged: boolean
 }) {
   const setup = useMemo(() => setupFor(s, sky.inventory), [s, sky.inventory])
   const o = s.observability
@@ -870,6 +1069,20 @@ function DetailSheet({
         </div>
       ))}
       <p className="note">{t('detail.notAProbability')}</p>
+
+      {/* The app knows the time, the telescope, the eyepiece, the
+          magnification, the altitude, the cloud and the Moon. It does not know
+          whether he actually saw it — so that is the only thing it asks. A
+          miss is worth recording too: "looked, could not find it" is the note
+          you want to read before trying again. */}
+      <div className="logbtns">
+        <button className="logbtn" data-done={logged} onClick={() => onLog('yes', setup)}>
+          {logged ? t('log.saved') : t('log.sawIt')}
+        </button>
+        <button className="logbtn ghost" onClick={() => onLog('no', setup)}>
+          {t('log.missedIt')}
+        </button>
+      </div>
     </Sheet>
   )
 }
@@ -883,11 +1096,39 @@ function Fact({ k, v, sub }: { k: string; v: string; sub?: string }) {
   )
 }
 
-function MenuSheet({ onGo, onBack }: { onGo: (p: Panel) => void; onBack: () => void }) {
+/**
+ * The menu, and the way into everything else.
+ *
+ * Two things it was missing. It arrived all at once as a flat list, which read
+ * as a settings screen rather than a way in — so the rows now come in one
+ * after another, quickly, which costs nothing and makes the sheet feel like it
+ * opened rather than appeared. And there was no way to ask for a thing by
+ * name: the search grows out of the magnifier rather than sitting there as an
+ * empty box, so it is invisible until wanted and immediate once it is.
+ */
+function MenuSheet({
+  onGo, onBack, index, onPick,
+}: {
+  onGo: (p: Panel) => void
+  onBack: () => void
+  index: Searchable[]
+  onPick: (hit: SearchHit) => void
+}) {
+  const [searching, setSearching] = useState(false)
+  const [query, setQuery] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (searching) input.current?.focus()
+  }, [searching])
+
+  const hits = useMemo(() => search(query, index), [query, index])
+
   const items: [string, Panel][] = [
     [t('menu.liveSky'), null],
     [t('menu.tonight'), 'tonight'],
     [t('menu.news'), 'news'],
+    [t('menu.logbook'), 'logbook'],
     [t('menu.night'), 'night'],
     [t('menu.plan'), 'plan'],
     [t('menu.imaging'), 'imaging'],
@@ -896,18 +1137,77 @@ function MenuSheet({ onGo, onBack }: { onGo: (p: Panel) => void; onBack: () => v
     [t('menu.language'), 'language'],
     [t('menu.sources'), 'sources'],
   ]
+
   return (
     <Sheet title={t('menu.title')} onBack={onBack}>
-      {items.map(([label, p]) => (
-        <button key={label} className="row" onClick={() => (p ? onGo(p) : onBack())}>
-          <span className="row-main"><span className="row-name">{label}</span></span>
+      <div className="searchrow" data-open={searching}>
+        <button
+          className="searchbtn"
+          aria-label={t('search.open')}
+          aria-expanded={searching}
+          onClick={() => {
+            if (searching && query === '') setSearching(false)
+            else setSearching(true)
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M12.8 12.8 17 17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          </svg>
         </button>
-      ))}
-      <p className="note">{t('explore.note')}</p>
+        <input
+          ref={input}
+          className="searchinput"
+          type="search"
+          value={query}
+          placeholder={t('search.placeholder')}
+          aria-label={t('search.open')}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setSearching(true)}
+        />
+        {query !== '' && (
+          <button className="searchclear" aria-label={t('search.clear')} onClick={() => setQuery('')}>
+            ✕
+          </button>
+        )}
+      </div>
+
+      {query !== '' ? (
+        <>
+          {hits.length === 0 && <p className="note">{t('search.none')}</p>}
+          {hits.map((h, i) => (
+            <button
+              key={`${h.kind}-${h.id}`}
+              className="row menurow"
+              style={{ animationDelay: `${Math.min(i, 8) * 26}ms` }}
+              onClick={() => onPick(h)}
+            >
+              <span className="row-main">
+                <span className="row-name">{h.title}</span>
+                <span className="row-sub">{h.subtitle}</span>
+              </span>
+            </button>
+          ))}
+        </>
+      ) : (
+        <>
+          {items.map(([label, p], i) => (
+            <button
+              key={label}
+              className="row menurow"
+              style={{ animationDelay: `${i * 26}ms` }}
+              onClick={() => (p ? onGo(p) : onBack())}
+            >
+              <span className="row-main"><span className="row-name">{label}</span></span>
+              <span className="row-go" aria-hidden="true">›</span>
+            </button>
+          ))}
+          <p className="note">{t('explore.note')}</p>
+        </>
+      )}
     </Sheet>
   )
 }
-
 function EquipmentSheet({ sky, onBack }: { sky: Sky; onBack: () => void }) {
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ brand: '', model: '', focalMm: '' })
